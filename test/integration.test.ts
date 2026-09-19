@@ -1,3 +1,4 @@
+import { browserState, tab } from './browser-state';
 /**
  * Integration tests: Background message handler end-to-end flows.
  * Tests the full pipeline through message dispatch without DOM dependency.
@@ -48,6 +49,7 @@ describe('E2E Integration: Message dispatch → Background → Storage', () => {
   });
 
   it('stats increment after apply', async () => {
+    browserState([tab(1, { title: 'GH', url: 'https://github.com' }), tab(2, { title: 'Docs', url: 'https://docs.com' })]);
     const { applyGroups } = await import('../src/background');
     await applyGroups([
       { name: 'Dev', color: 'blue', tabs: [{ id: 1, title: 'GH', url: 'https://github.com' }] },
@@ -74,7 +76,7 @@ describe('E2E Integration: Message dispatch → Background → Storage', () => {
       { id: 2, url: 'https://docs.com', title: 'Docs', groupId: -1 },
     ] as any);
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({
-      choices: [{ message: { content: '[{"name":"Dev","tabIds":[1,2]}]' } }],
+      choices: [{ message: { content: '[{"name":"Dev","color":"blue","tabIds":[1,2]}]' } }],
       usage: { prompt_tokens: 500, completion_tokens: 200 },
     })));
 
@@ -88,43 +90,19 @@ describe('E2E Integration: Message dispatch → Background → Storage', () => {
 
   // ─── Organize → Apply → Undo pipeline ────────────────────────────────────
 
-  it('organize then apply updates affinity', async () => {
-    vi.mocked(chrome.tabs.query).mockResolvedValue([
-      { id: 1, url: 'https://github.com', title: 'GH', groupId: -1 },
-      { id: 2, url: 'https://youtube.com', title: 'YT', groupId: -1 },
-    ] as any);
+  it('organize message applies groups and undo restores them without a separate Apply message', async () => {
+    const state = browserState([tab(1), tab(2)]);
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({
-      choices: [{ message: { content: '[{"name":"Dev","tabIds":[1]},{"name":"Fun","tabIds":[2]}]' } }],
-      usage: { prompt_tokens: 100, completion_tokens: 50 },
-    }), { status: 200 }));
-
-    const organizeRes = await sendMsg({ type: 'organize' });
-    expect(organizeRes.suggestions).toBeDefined();
-    expect(organizeRes.suggestions.length).toBeGreaterThan(0);
-
-    const applyRes = await sendMsg({ type: 'apply', suggestions: organizeRes.suggestions });
-    expect(applyRes.status).toBe('applied');
-
-    // Check affinity was updated
+      choices: [{ message: { content: '[{"name":"Work","color":"blue","tabIds":[1,2]}]' } }],
+    })));
+    const organized = await sendMsg({ type: 'organize', windowId: 1 });
+    expect(organized.organization.state).toBe('done');
+    expect(state.tabs[0].groupId).toBe(state.tabs[1].groupId);
     const { getWeightedAffinity } = await import('../src/storage');
-    const affinity = await getWeightedAffinity();
-    expect(Object.keys(affinity).length).toBeGreaterThan(0);
-  });
-
-  it('undo after apply restores state', async () => {
-    // Apply groups first
-    vi.mocked(chrome.tabs.group).mockImplementation(async () => 100);
-    await sendMsg({
-      type: 'apply',
-      suggestions: [
-        { name: 'Dev', color: 'blue', tabs: [{ id: 5, title: 'GH', url: 'https://github.com' }] },
-      ],
-    });
-
-    // Undo
-    const undoRes = await sendMsg({ type: 'undo' });
-    expect(undoRes.status).toBe('undone');
-    expect(undoRes.error).toBeUndefined();
+    expect(Object.keys(await getWeightedAffinity()).length).toBeGreaterThan(0);
+    const undone = await sendMsg({ type: 'undo' });
+    expect(undone.status).toBe('undone');
+    expect(state.tabs.every(t => t.groupId === -1)).toBe(true);
   });
 
   it('undo returns error when no snapshot exists', async () => {

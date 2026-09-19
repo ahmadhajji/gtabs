@@ -1,6 +1,9 @@
-import type { Settings, DomainRule, Color, ProviderPreset } from './types';
+import type { Settings, DomainRule, Color, ProviderPreset, LLMConfig } from './types';
 import { DEFAULT_SETTINGS, PROVIDERS, COLORS } from './types';
 import { getSettings, saveSettings, getDomainRules, saveDomainRules } from './storage';
+
+import { sendMessage as sendMsg } from './messages';
+import { endpointPermission, validateProvider } from './provider';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -22,7 +25,11 @@ try {
 const providerGrid = $<HTMLDivElement>('provider-grid');
 const keyRow = $<HTMLDivElement>('key-row');
 const inApiKey = $<HTMLInputElement>('apiKey');
-const modelSelect = $<HTMLSelectElement>('model-select');
+const modelSelect = $<HTMLInputElement>('model-select');
+const inBaseUrl = $<HTMLInputElement>('baseUrl');
+const baseUrlRow = $<HTMLDivElement>('base-url-row');
+const saveProviderBtn = $<HTMLButtonElement>('save-provider');
+const profiles = new Map<string, LLMConfig>();
 const testBtn = $<HTMLButtonElement>('test-btn');
 const signupLink = $<HTMLAnchorElement>('signup-link');
 const testResult = $<HTMLSpanElement>('test-result');
@@ -71,10 +78,6 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function sendMsg(msg: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  return new Promise(resolve => chrome.runtime.sendMessage(msg, resolve));
-}
-
 // --- Provider Cards ---
 
 let chromeAIAvailable = false;
@@ -119,80 +122,79 @@ function hideChromeAISetup() {
   document.getElementById('chrome-ai-setup')?.classList.add('hidden');
 }
 
-function selectProvider(p: ProviderPreset) {
+function rememberDraft(): void {
+  if (currentProvider) profiles.set(currentProvider.id, {
+    baseUrl: inBaseUrl.value, apiKey: inApiKey.value, model: modelSelect.value,
+  });
+}
+
+function selectProvider(p: ProviderPreset): void {
+  rememberDraft();
   currentProvider = p;
-
-  // Update UI
   renderProviderCards(p.id);
-
-  // Show/hide key row + signup link
-  keyRow.classList.toggle('hidden', !p.needsKey);
-  if (p.signupUrl) {
-    signupLink.href = p.signupUrl;
-    signupLink.hidden = false;
-  } else {
-    signupLink.hidden = true;
-  }
-
-  // Populate models
+  keyRow.classList.toggle('hidden', Boolean(p.isBuiltIn));
+  baseUrlRow.classList.toggle('hidden', p.id !== 'custom');
+  signupLink.hidden = !p.signupUrl;
+  if (p.signupUrl) signupLink.href = p.signupUrl;
+  const draft = profiles.get(p.id);
+  inBaseUrl.value = draft?.baseUrl ?? p.baseUrl;
+  inApiKey.value = draft?.apiKey ?? '';
+  modelSelect.value = draft?.model ?? p.models[0] ?? '';
   populateModels(p.models);
-
-  // Ollama: fetch models dynamically
-  if (p.canFetchModels) {
-    fetchOllamaModels();
-  }
-
-  save();
+  testResult.textContent = 'Click Save provider to use these settings.';
 }
 
-function populateModels(models: string[]) {
-  modelSelect.innerHTML = '';
-  if (!models.length) {
-    modelSelect.innerHTML = '<option value="">No models available</option>';
-    return;
-  }
-  for (const m of models) {
-    const opt = document.createElement('option');
-    opt.value = m;
-    opt.textContent = m;
-    modelSelect.appendChild(opt);
-  }
+function populateModels(models: string[]): void {
+  const list = $<HTMLDataListElement>('model-presets');
+  list.replaceChildren(...models.map(model => {
+    const option = document.createElement('option');
+    option.value = model;
+    return option;
+  }));
 }
 
-// No longer auto-populating select, using range slider now.
-
-async function fetchOllamaModels() {
-  const origText = modelSelect.innerHTML;
-  modelSelect.innerHTML = '<option>Loading models...</option>';
+async function saveProvider(test: boolean): Promise<void> {
   try {
-    const res = await sendMsg({ type: 'fetch-ollama-models' });
-    if (res?.models?.length) {
-      populateModels(res.models);
-    } else {
-      modelSelect.innerHTML = '<option value="">Ollama not running</option>';
+    if (!currentProvider) return;
+    const provider = currentProvider.id;
+    const config = validateProvider({ provider, baseUrl: inBaseUrl.value, apiKey: inApiKey.value, model: modelSelect.value });
+    // Call synchronously from the button's click, before any storage await loses the gesture.
+    const permission = config.baseUrl ? chrome.permissions.request({ origins: [endpointPermission(config.baseUrl)] }) : Promise.resolve(true);
+    saveProviderBtn.disabled = true;
+    testBtn.disabled = true;
+    if (!await permission) throw new Error('Host access denied. Provider was not saved. Click Save provider and allow the API host.');
+    rememberDraft();
+    profiles.set(provider, config);
+    await chrome.storage.local.set({ providerProfiles: Object.fromEntries(profiles) });
+    const current = await getSettings();
+    await saveSettings({ ...current, ...config, provider });
+    if (currentProvider?.id === provider) {
+      inBaseUrl.value = config.baseUrl;
+      inApiKey.value = config.apiKey;
+      modelSelect.value = config.model;
     }
-  } catch {
-    modelSelect.innerHTML = '<option value="">Connection failed</option>';
-  }
+    testResult.textContent = 'Provider saved.';
+    testResult.className = 'test-result ok';
+    if (test) {
+      testResult.textContent = 'Testing…';
+      const res = await sendMsg({ type: 'test-connection' });
+      if (res?.status !== 'done') throw new Error(res?.error || 'Connection test failed.');
+      testResult.textContent = 'Connected!';
+    }
+  } catch (error) {
+    testResult.textContent = error instanceof Error ? error.message : 'Could not save provider.';
+    testResult.className = 'test-result fail';
+  } finally { saveProviderBtn.disabled = false; testBtn.disabled = false; }
 }
 
 // --- Save ---
 
 async function save() {
-  const p = currentProvider;
-  if (!p) return;
-
-  const model = modelSelect.value;
-  const baseUrl = p.baseUrl;
-
   // Preserve pinnedGroups from current settings (managed separately)
   const current = await getSettings();
 
   const settings: Settings = {
-    provider: p.id,
-    baseUrl,
-    apiKey: inApiKey.value.trim(),
-    model,
+    ...current,
     maxGroups: Number(inMaxGroups.value) || DEFAULT_SETTINGS.maxGroups,
     maxTitleLength: Number(inMaxTitleLength.value) || DEFAULT_SETTINGS.maxTitleLength,
     autoTrigger: inAutoTrigger.checked,
@@ -232,23 +234,21 @@ async function load() {
   const p = PROVIDERS.find(provider => provider.id === s.provider)
     || PROVIDERS.find(provider => provider.id === DEFAULT_SETTINGS.provider)
     || PROVIDERS[0];
-  currentProvider = p;
-
-  renderProviderCards(p.id);
-  if (p.isBuiltIn && !chromeAIAvailable) showChromeAISetup();
-  keyRow.classList.toggle('hidden', !p.needsKey);
-
-  inApiKey.value = s.apiKey;
-
-  // Models
-  if (p.canFetchModels) {
-    await fetchOllamaModels();
-  } else {
-    populateModels(p.models);
+  const stored = await chrome.storage.local.get('providerProfiles');
+  const raw: unknown = stored.providerProfiles;
+  if (raw && typeof raw === 'object') {
+    for (const [id, value] of Object.entries(raw)) {
+      if (value && typeof value === 'object' && 'baseUrl' in value && typeof value.baseUrl === 'string' &&
+        'model' in value && typeof value.model === 'string' && 'apiKey' in value && typeof value.apiKey === 'string') {
+        profiles.set(id, { baseUrl: value.baseUrl, model: value.model, apiKey: value.apiKey });
+      }
+    }
   }
-
-  // Select current model
-  modelSelect.value = s.model;
+  profiles.set(p.id, { baseUrl: s.baseUrl, model: s.model, apiKey: s.apiKey });
+  currentProvider = null;
+  selectProvider(p);
+  testResult.textContent = '';
+  if (p.isBuiltIn && !chromeAIAvailable) showChromeAISetup();
 
   // Behavior
   inMaxGroups.value = String(s.maxGroups);
@@ -297,24 +297,8 @@ async function load() {
 
 // --- Test Connection ---
 
-testBtn.addEventListener('click', async () => {
-  await save();
-  testBtn.disabled = true;
-  testResult.textContent = 'Testing...';
-  testResult.className = 'test-result';
-
-  const res = await sendMsg({ type: 'test-connection' });
-  testBtn.disabled = false;
-
-  if (res?.status === 'done') {
-    testResult.textContent = 'Connected!';
-    testResult.className = 'test-result ok';
-  } else {
-    testResult.textContent = res?.error || 'Failed';
-    testResult.className = 'test-result fail';
-  }
-  setTimeout(() => { testResult.textContent = ''; }, 5000);
-});
+saveProviderBtn.addEventListener('click', () => { void saveProvider(false); });
+testBtn.addEventListener('click', () => { void saveProvider(true); });
 
 // --- Domain Rules ---
 
@@ -516,7 +500,7 @@ for (const b of rangeBindings) {
 }
 
 const autoSaveElements = [
-  inApiKey, modelSelect, inMaxGroups, inMaxTitleLength, inAutoTrigger, inThreshold,
+  inMaxGroups, inMaxTitleLength, inAutoTrigger, inThreshold,
   inMergeMode, inSilentAutoAdd, inAutoPinApps, inSmartUngroup, inStaleTabThresholdHours,
   inSpendingCapUSD,
   inEnableCorrectionTracking, inEnableRejectionMemory, inEnableGroupDrift,
@@ -584,7 +568,7 @@ $<HTMLButtonElement>('tool-export-md').addEventListener('click', async () => {
   const res = await sendMsg({ type: 'export-markdown' });
   if (res?.error) { setToolStatus(res.error, true); return; }
   try {
-    await navigator.clipboard.writeText(res.markdown || '');
+    await navigator.clipboard.writeText(res?.markdown || '');
     setToolStatus('Markdown copied to clipboard!');
   } catch {
     setToolStatus('Clipboard access denied', true);
@@ -631,14 +615,14 @@ async function refreshToolWorkspaces() {
   toolWsList.querySelectorAll<HTMLButtonElement>('.ws-tool-restore').forEach(btn => {
     btn.addEventListener('click', async () => {
       setToolStatus(`Restoring "${btn.dataset.name}"...`);
-      const res = await sendMsg({ type: 'restore-workspace', name: btn.dataset.name });
+      const res = await sendMsg({ type: 'restore-workspace', name: btn.dataset.name || '' });
       setToolStatus(res?.error ? res.error : `Restored "${btn.dataset.name}" in new window`, Boolean(res?.error));
     });
   });
 
   toolWsList.querySelectorAll<HTMLButtonElement>('.ws-tool-delete').forEach(btn => {
     btn.addEventListener('click', async () => {
-      await sendMsg({ type: 'delete-workspace', name: btn.dataset.name });
+      await sendMsg({ type: 'delete-workspace', name: btn.dataset.name || '' });
       await refreshToolWorkspaces();
     });
   });

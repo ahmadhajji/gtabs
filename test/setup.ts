@@ -2,6 +2,7 @@ import { vi } from 'vitest';
 
 let localStore: Record<string, unknown> = {};
 let syncStore: Record<string, unknown> = {};
+let sessionStore: Record<string, unknown> = {};
 
 function makeStorage(store: Record<string, unknown>) {
   return {
@@ -36,6 +37,8 @@ class MockEvent {
 export function resetStores() {
   localStore = {};
   syncStore = {};
+  sessionStore = {};
+  chrome.storage.session = makeStorage(sessionStore) as unknown as chrome.storage.SessionStorageArea;
   (globalThis as any).chrome.storage.local = makeStorage(localStore);
   (globalThis as any).chrome.storage.sync = makeStorage(syncStore);
 }
@@ -90,6 +93,11 @@ export function resetAllMocks() {
   vi.mocked(chrome.action.setBadgeText).mockReset().mockResolvedValue(undefined);
   vi.mocked(chrome.action.setBadgeBackgroundColor).mockReset().mockResolvedValue(undefined);
   vi.mocked(chrome.runtime.openOptionsPage).mockReset().mockResolvedValue(undefined as any);
+  vi.mocked(chrome.permissions.contains).mockReset().mockResolvedValue(true);
+  vi.mocked(chrome.permissions.request).mockReset().mockResolvedValue(true);
+  vi.mocked(chrome.alarms.get).mockReset().mockResolvedValue(undefined);
+  vi.mocked(chrome.alarms.create).mockClear();
+  vi.mocked(chrome.alarms.clear).mockClear();
   vi.mocked(fetch).mockReset();
 }
 
@@ -134,15 +142,23 @@ let groupIdCounter = 100;
   },
   alarms: {
     create: vi.fn(),
-    clear: vi.fn(),
+    clear: vi.fn(() => Promise.resolve(true)),
+    get: vi.fn(() => Promise.resolve(undefined)),
     onAlarm: new MockEvent(),
   },
   runtime: {
     onMessage: new MockEvent(),
     onInstalled: new MockEvent(),
+    onStartup: new MockEvent(),
+    getPlatformInfo: vi.fn(() => Promise.resolve({ os: 'linux' })),
     lastError: undefined,
     sendMessage: vi.fn(),
     openOptionsPage: vi.fn(() => Promise.resolve()),
+  },
+  permissions: {
+    contains: vi.fn(() => Promise.resolve(true)),
+    request: vi.fn(() => Promise.resolve(true)),
+    onRemoved: new MockEvent(),
   },
   commands: {
     onCommand: new MockEvent(),
@@ -154,6 +170,7 @@ let groupIdCounter = 100;
     onClicked: new MockEvent(),
   },
   storage: {
+    session: makeStorage(sessionStore),
     local: makeStorage(localStore),
     sync: makeStorage(syncStore),
     onChanged: new MockEvent(),
@@ -172,3 +189,8 @@ let groupIdCounter = 100;
 };
 
 (globalThis as any).fetch = vi.fn();
+
+export async function emit(event: unknown, ...args: unknown[]): Promise<unknown[]> {
+  if (!(event instanceof MockEvent)) throw new Error('Expected a mocked Chrome event');
+  return event.callListeners(...args);
+}

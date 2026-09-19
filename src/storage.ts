@@ -62,7 +62,7 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
 
 function sanitizeSettings(input: Partial<Settings>): Settings {
   const s = { ...DEFAULT_SETTINGS, ...input };
-  const reorgSchedule = s.reorgSchedule === 'daily' || s.reorgSchedule === 'weekly' || s.reorgSchedule === 'off'
+  const reorgSchedule = s.reorgSchedule === 'five-minutes' || s.reorgSchedule === 'daily' || s.reorgSchedule === 'weekly' || s.reorgSchedule === 'off'
     ? s.reorgSchedule
     : DEFAULT_SETTINGS.reorgSchedule;
   return {
@@ -151,7 +151,7 @@ export function computeDecayedWeight(count: number, lastUsed: number, now = Date
 
 async function migrateAffinity(): Promise<void> {
   const versionData = await chrome.storage.local.get({ [K.affinityVersion]: 0 });
-  if (versionData[K.affinityVersion] >= 2) return;
+  if (Number(versionData[K.affinityVersion]) >= 2) return;
 
   const oldData = await chrome.storage.local.get({ [K.affinity]: {} });
   const oldAffinity = oldData[K.affinity] as AffinityMap;
@@ -340,22 +340,28 @@ export async function removeWorkspace(name: string): Promise<void> {
   await chrome.storage.local.set({ [K.workspaces]: ws });
 }
 
-// --- Undo Snapshot (local) ---
+// --- Undo Snapshot (session: tab IDs must not outlive the browser) ---
 
 export async function getUndoSnapshot(): Promise<UndoSnapshot | null> {
-  const data = await chrome.storage.local.get({ [K.undoSnapshot]: null });
+  const data = await chrome.storage.session.get({ [K.undoSnapshot]: null });
   return data[K.undoSnapshot] as UndoSnapshot | null;
 }
 
 export async function saveUndoSnapshot(snapshot: UndoSnapshot | null): Promise<void> {
-  await chrome.storage.local.set({ [K.undoSnapshot]: snapshot });
+  await chrome.storage.session.set({ [K.undoSnapshot]: snapshot });
 }
 
 // --- Stats (local) ---
 
 export async function getStats(): Promise<Stats> {
   const data = await chrome.storage.local.get({ [K.stats]: DEFAULT_STATS });
-  return { ...DEFAULT_STATS, ...data[K.stats] };
+  const value: unknown = data[K.stats];
+  if (!value || typeof value !== 'object') return { ...DEFAULT_STATS };
+  return {
+    totalOrganizations: 'totalOrganizations' in value && typeof value.totalOrganizations === 'number' ? value.totalOrganizations : 0,
+    totalTabsGrouped: 'totalTabsGrouped' in value && typeof value.totalTabsGrouped === 'number' ? value.totalTabsGrouped : 0,
+    lastOrganizedAt: 'lastOrganizedAt' in value && typeof value.lastOrganizedAt === 'number' ? value.lastOrganizedAt : null,
+  };
 }
 
 export async function incrementStats(tabsGrouped: number): Promise<Stats> {

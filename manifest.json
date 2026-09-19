@@ -2,8 +2,15 @@
   "manifest_version": 3,
   "name": "gTabs - AI Tab Organizer",
   "version": "0.5.1",
-  "description": "One-click AI tab organizer with editable suggestions, undo, and local or cloud LLM support",
-  "permissions": ["tabs", "tabGroups", "storage", "alarms", "contextMenus", "windows"],
+  "description": "AI tab organization for Helium with one-click grouping, undo, and configurable providers",
+  "permissions": [
+    "tabs",
+    "tabGroups",
+    "storage",
+    "alarms",
+    "contextMenus",
+    "windows"
+  ],
   "host_permissions": [
     "https://api.openai.com/*",
     "https://api.anthropic.com/*",
@@ -25,11 +32,17 @@
   },
   "commands": {
     "organize-tabs": {
-      "suggested_key": { "default": "Ctrl+Shift+G", "mac": "Command+Shift+G" },
+      "suggested_key": {
+        "default": "Ctrl+Shift+G",
+        "mac": "Command+Shift+G"
+      },
       "description": "Organize tabs into groups"
     },
     "undo-grouping": {
-      "suggested_key": { "default": "Ctrl+Shift+Z", "mac": "Command+Shift+Z" },
+      "suggested_key": {
+        "default": "Ctrl+Shift+Z",
+        "mac": "Command+Shift+Z"
+      },
       "description": "Undo last tab grouping"
     }
   },
@@ -39,5 +52,9 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "incognito": "split"
+  "incognito": "not_allowed",
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ]
 }

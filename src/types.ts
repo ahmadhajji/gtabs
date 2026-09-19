@@ -60,6 +60,7 @@ export const PROVIDERS: ProviderPreset[] = [
     'google/gemini-2.5-flash',
     'deepseek/deepseek-v3.2-20251201',
   ], needsKey: true },
+  { id: 'custom', name: 'OpenAI-compatible proxy', baseUrl: '', models: [], needsKey: false, helpText: 'Use your own API base URL and model ID. An API key is optional.' },
   { id: 'ollama', name: 'Ollama (Local)', baseUrl: 'http://localhost:11434/v1', models: [], needsKey: false, canFetchModels: true, signupUrl: 'https://ollama.com/download', helpText: 'Run models locally. Install Ollama first.' },
 ];
 
@@ -108,7 +109,7 @@ export interface Settings extends LLMConfig {
   enablePatternMining: boolean;
   groupDriftThreshold: number;
   // Scheduled re-org
-  reorgSchedule: 'off' | 'daily' | 'weekly';
+  reorgSchedule: 'off' | 'five-minutes' | 'daily' | 'weekly';
   reorgTime: number;
   // Pinned groups
   pinnedGroups: string[];
@@ -234,6 +235,9 @@ export const MODEL_PRICING: Record<string, [number, number]> = {
 
 export interface UndoSnapshot {
   timestamp: number;
+  windowId?: number;
+  groupDetails?: chrome.tabGroups.TabGroup[];
+  positions?: { tabId: number; index: number; url: string; appliedGroupId?: number }[];
   groups: { tabId: number; groupId: number }[];
   ungrouped: number[];
 }
@@ -261,14 +265,14 @@ export interface ExportData {
 // --- Defaults ---
 
 export const DEFAULT_SETTINGS: Settings = {
-  provider: 'chrome-ai',
+  provider: 'custom',
   baseUrl: '',
   apiKey: '',
-  model: 'gemini-nano',
+  model: '',
   autoTrigger: false,
   threshold: 5,
   maxGroups: 6,
-  mergeMode: false,
+  mergeMode: true,
   maxTitleLength: 80,
   silentAutoAdd: false,
   autoPinApps: false,
@@ -278,7 +282,7 @@ export const DEFAULT_SETTINGS: Settings = {
   enableGroupDrift: false,
   enablePatternMining: false,
   groupDriftThreshold: 50,
-  reorgSchedule: 'off',
+  reorgSchedule: 'five-minutes',
   reorgTime: 9,
   pinnedGroups: [],
   smartUngroup: false,
@@ -299,10 +303,17 @@ export const DEFAULT_COSTS: CostTotals = {
   byProvider: {},
 };
 
+export interface OrganizationStatus {
+  state: 'idle' | 'running' | 'done' | 'error';
+  message: string;
+  canUndo: boolean;
+}
+
 // --- Messages ---
 
 export type MessageType =
-  | { type: 'organize' }
+  | { type: 'organize'; windowId?: number }
+  | { type: 'get-organization-status' }
   | { type: 'organize-ungrouped' }
   | { type: 'apply'; suggestions: GroupSuggestion[] }
   | { type: 'undo' }
@@ -331,7 +342,7 @@ export type MessageType =
   | { type: 'merge-split-suggestions' }
   | { type: 'search-tabs'; query: string }
   | { type: 'get-group-stats' }
-  | { type: 'status'; status: string; suggestions?: GroupSuggestion[]; error?: string; duplicates?: TabInfo[][]; stats?: Stats; costs?: CostTotals; data?: ExportData; models?: string[]; chatResponse?: string; markdown?: string; workspaceNames?: string[]; count?: number; drifted?: boolean; driftedGroups?: string[]; mergeSplit?: MergeSplitResult; tabResults?: Array<{ id: number; title: string; url: string; groupName: string; groupId: number }>; groupStats?: Array<{ name: string; color: Color; tabCount: number; domains: string[] }> };
+  | { type: 'status'; status: string; available?: boolean; organization?: OrganizationStatus; suggestions?: GroupSuggestion[]; error?: string; duplicates?: TabInfo[][]; stats?: Stats; costs?: CostTotals; data?: ExportData; models?: string[]; chatResponse?: string; markdown?: string; workspaceNames?: string[]; count?: number; drifted?: boolean; driftedGroups?: string[]; mergeSplit?: MergeSplitResult; tabResults?: Array<{ id: number; title: string; url: string; groupName: string; groupId: number }>; groupStats?: Array<{ name: string; color: Color; tabCount: number; domains: string[] }> };
 
 declare global {
   var LanguageModel: {

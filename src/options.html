@@ -273,15 +273,21 @@
       </div>
 
       <div class="form-group hidden" id="key-row">
-        <label>API Key <a id="signup-link" href="#" target="_blank" hidden>Get free key →</a></label>
+        <label for="apiKey">API key <a id="signup-link" href="#" target="_blank" hidden>Get free key →</a></label>
         <input type="password" id="apiKey" placeholder="sk-..." />
-        <div class="slider-desc" style="margin-top:6px">Cloud providers receive tab titles and URLs to generate groups.</div>
+        <div class="slider-desc" style="margin-top:6px">The configured provider receives eligible tab titles and URLs. A proxy may forward them to a cloud model. Keys stay in this browser profile. Leave the key blank only if your endpoint allows it.</div>
+      </div>
+      <div class="form-group hidden" id="base-url-row">
+        <label for="baseUrl">API base URL</label>
+        <input type="url" id="baseUrl" placeholder="https://your-provider.example/v1" autocomplete="off" />
+        <p class="slider-desc">Include the API prefix, such as /v1. gTabs appends /chat/completions. HTTP is supported for localhost, 127.0.0.1, and LAN proxies. Host access covers all ports on the selected host.</p>
       </div>
       <div class="form-row" style="margin-top:14px">
-        <div class="form-group"><label>Model</label><select id="model-select"></select></div>
+        <div class="form-group"><label for="model-select">Model ID</label><input type="text" id="model-select" list="model-presets" placeholder="Enter the exact model ID" /><datalist id="model-presets"></datalist></div>
         <div class="form-action" style="display:flex;align-items:center;gap:8px">
-          <button class="btn btn-sm" id="test-btn">Test</button>
-          <span class="test-result" id="test-result"></span>
+          <button class="btn btn-sm" id="save-provider">Save provider</button>
+          <button class="btn btn-sm" id="test-btn">Save and test</button>
+          <span class="test-result" id="test-result" role="status"></span>
         </div>
       </div>
     </div>
@@ -305,7 +311,7 @@
         <input type="range" id="maxTitleLength" min="20" max="200" value="80" step="5" />
       </div>
 
-      <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="autoTrigger" /><span class="toggle-slider"></span></label><div class="toggle-row-text"><span>Auto-organize</span><p>Silently run AI grouping when ungrouped tabs exceed your threshold.</p></div></div>
+      <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="autoTrigger" /><span class="toggle-slider"></span></label><div class="toggle-row-text"><span>Threshold automation</span><p>Used only when the schedule below is Off. Organizes new tabs when their count reaches the threshold.</p></div></div>
       <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="mergeMode" /><span class="toggle-slider"></span></label><div class="toggle-row-text"><span>Protect Existing Groups</span><p>Only organize ungrouped tabs — never reshuffle existing groups.</p></div></div>
       <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="silentAutoAdd" /><span class="toggle-slider"></span></label><div class="toggle-row-text"><span>Zero-LLM Fast Routing</span><p>Instantly route new tabs via domain affinity — no AI calls.</p></div></div>
       <div class="toggle-row"><label class="toggle-switch"><input type="checkbox" id="autoPinApps" /><span class="toggle-slider"></span></label><div class="toggle-row-text"><span>Auto-pin Web Apps</span><p>Pin Gmail, Calendar, Slack, Spotify to the left automatically.</p></div></div>
@@ -325,10 +331,11 @@
     </div>
 
     <div class="section">
-      <div class="section-header"><div class="section-icon">📅</div><h2>Scheduled Re-org</h2></div>
-      <div class="form-group"><label>Schedule</label><select id="reorgSchedule"><option value="off">Off</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select></div>
+      <div class="section-header"><div class="section-icon">📅</div><h2>Automatic organization</h2></div>
+      <div class="form-group"><label for="reorgSchedule">Schedule</label><select id="reorgSchedule"><option value="off">Off</option><option value="five-minutes">Every five minutes</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select></div>
+      <p class="slider-desc">Runs in each normal window separately after provider setup. Existing groups and pinned tabs stay in place. Unchanged tabs skip AI requests. Browser sleep or shutdown delays runs. To stop all AI automation, select Off and disable Threshold automation.</p>
       <div class="slider-group" style="margin-top:16px">
-        <div class="slider-header"><div><div class="slider-label">Time of Day</div><div class="slider-desc">Hour (0-23) when scheduled re-org runs</div></div><span class="slider-val" id="reorgTimeVal">9</span></div>
+        <div class="slider-header"><div><div class="slider-label">Time of Day</div><div class="slider-desc">Hour (0-23) for daily and weekly schedules</div></div><span class="slider-val" id="reorgTimeVal">9</span></div>
         <input type="range" id="reorgTime" min="0" max="23" value="9" />
       </div>
     </div>
