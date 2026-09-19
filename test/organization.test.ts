@@ -217,12 +217,17 @@ it('holds the shared lock while fast routing awaits settings', async () => {
   await chrome.storage.local.set({ affinity: { 'site1.example': 'Work' } });
   let release: (settings: Settings) => void = () => { throw new Error('Routing not started'); };
   const spy = vi.spyOn(storage, 'getSettings').mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  const previousState = (await getOrganizationStatus()).state;
   const routing = emit(chrome.tabs.onUpdated, 1, { status: 'complete' }, state.tabs[0]);
   expect((await organizeAndApply(1)).state).toBe('running');
   expect((await undoLastGrouping()).error).toContain('Wait');
+  await vi.waitFor(() => expect(spy).toHaveBeenCalled());
   release({ ...configured, silentAutoAdd: true });
   await routing;
   spy.mockRestore();
   expect(state.tabs[0].groupId).toBe(8);
+  expect((await getOrganizationStatus()).state).not.toBe('running');
+  const published = await chrome.storage.session.get('organizationStatus');
+  expect(published.organizationStatus).toMatchObject({ state: previousState });
   expect(fetch).not.toHaveBeenCalled();
 });

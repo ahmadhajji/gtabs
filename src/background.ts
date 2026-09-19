@@ -1368,7 +1368,9 @@ chrome.tabs.onUpdated?.addListener(async (tabId, changeInfo, tab) => {
   if (!isTabUrlAllowed(tab.url)) return;
 
   organizationInFlight = true;
+  const previousStatus = organizationStatus;
   try {
+    await setOrganizationStatus('running', 'Checking tab routing…');
 
     if (isGroupedTab(tab)) {
       const settings = await getSettings();
@@ -1439,6 +1441,7 @@ chrome.tabs.onUpdated?.addListener(async (tabId, changeInfo, tab) => {
     }
   } finally {
     organizationInFlight = false;
+    await setOrganizationStatus(previousStatus.state, previousStatus.message);
     triggerAutoCheck();
   }
 });
