@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resetAllMocks } from './setup';
+import { browserState, tab } from './browser-state';
 import { getSuggestions, saveSettings, saveSuggestions, saveUndoSnapshot } from '../src/storage';
 import { DEFAULT_SETTINGS } from '../src/types';
 import type { TabInfo, GroupSuggestion } from '../src/types';
@@ -167,12 +168,13 @@ describe('organize', () => {
     await saveSettings(TEST_SETTINGS);
   });
 
-  it('returns error when fewer than 2 tabs', async () => {
+  it('organizes a single eligible tab', async () => {
     vi.mocked(chrome.tabs.query).mockResolvedValue([
       { id: 1, title: 'Solo', url: 'https://example.com' } as any,
     ]);
+    mockFetchLLM('[{"name":"Work","color":"blue","tabIds":[1]}]');
     const result = await organize();
-    expect(result.error).toContain('at least 2');
+    expect(result.suggestions?.[0].tabs).toHaveLength(1);
   });
 
   it('returns suggestions on success', async () => {
@@ -192,13 +194,13 @@ describe('organize', () => {
   it('returns error on LLM failure', async () => {
     vi.mocked(fetch).mockRejectedValue(new Error('Network down'));
     const result = await organize();
-    expect(result.error).toContain('Network down');
+    expect(result.error).toContain('Could not read');
   });
 
   it('catches non-Error exceptions', async () => {
     vi.mocked(fetch).mockRejectedValue('string error');
     const result = await organize();
-    expect(result.error).toBe('Unknown error');
+    expect(result.error).toContain('Could not read');
   });
 });
 
@@ -213,9 +215,13 @@ describe('applyGroups', () => {
     ]},
   ];
 
-  it('ungroups all tabs first', async () => {
+  beforeEach(() => {
+    browserState(suggestions.flatMap(g => g.tabs).map(t => tab(t.id, t)));
+  });
+
+  it('groups directly without unnecessary ungrouping', async () => {
     await applyGroups(suggestions);
-    expect(chrome.tabs.ungroup).toHaveBeenCalledWith([1, 2, 3]);
+    expect(chrome.tabs.ungroup).not.toHaveBeenCalled();
   });
 
   it('creates groups for each suggestion', async () => {
@@ -224,8 +230,7 @@ describe('applyGroups', () => {
   });
 
   it('sets correct group titles and colors', async () => {
-    let callCount = 0;
-    vi.mocked(chrome.tabs.group).mockImplementation(async () => 200 + callCount++);
+    browserState(suggestions.flatMap(g => g.tabs).map(t => tab(t.id, t))).nextGroup = 200;
     await applyGroups(suggestions);
     expect(chrome.tabGroups.update).toHaveBeenCalledWith(200, expect.objectContaining({ title: 'Dev', color: 'blue' }));
     expect(chrome.tabGroups.update).toHaveBeenCalledWith(201, expect.objectContaining({ title: 'Media', color: 'red' }));
@@ -325,7 +330,9 @@ describe('undo snapshot', () => {
   });
 
   it('restores tabs to previous grouping', async () => {
+    browserState([tab(1), tab(2), tab(3)]);
     const snapshot = {
+      ...(await snapshotCurrentState()),
       timestamp: Date.now(),
       groups: [{ tabId: 1, groupId: 100 }, { tabId: 2, groupId: 100 }],
       ungrouped: [3],
@@ -337,14 +344,16 @@ describe('undo snapshot', () => {
   });
 
   it('handles snapshot with only ungrouped tabs', async () => {
-    const snapshot = { timestamp: Date.now(), groups: [], ungrouped: [1, 2, 3] };
+    browserState([tab(1), tab(2), tab(3)]);
+    const snapshot = await snapshotCurrentState();
     await restoreSnapshot(snapshot);
     expect(chrome.tabs.ungroup).toHaveBeenCalledWith([1, 2, 3]);
     expect(chrome.tabs.group).not.toHaveBeenCalled();
   });
 
   it('handles restore failure gracefully', async () => {
-    const snapshot = { timestamp: Date.now(), groups: [], ungrouped: [1] };
+    browserState([tab(1)]);
+    const snapshot = await snapshotCurrentState();
     await saveUndoSnapshot(snapshot);
     vi.mocked(chrome.tabs.query).mockRejectedValue(new Error('no tab'));
     const result = await undoLastGrouping();
@@ -494,7 +503,7 @@ describe('event listeners', () => {
     vi.useFakeTimers();
     _resetAutoCheckCooldown();
     vi.mocked(chrome.tabs.query).mockResolvedValue([]);
-    await saveSettings({ ...DEFAULT_SETTINGS, provider: 'groq', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', apiKey: 'test-key', autoTrigger: true, threshold: 0, silentAutoAdd: true });
+    await saveSettings({ ...DEFAULT_SETTINGS, provider: 'groq', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', apiKey: 'test-key', reorgSchedule: 'off', autoTrigger: true, threshold: 0, silentAutoAdd: true });
   });
 
   afterEach(() => {
@@ -519,18 +528,14 @@ describe('event listeners', () => {
   });
 
   it('auto-trigger applies grouped suggestions when threshold is met', async () => {
-    const origQuery = vi.mocked(chrome.tabs.query);
-    origQuery.mockResolvedValue([
-      { id: 1, title: 'A', url: 'https://a.com', groupId: -1 },
-      { id: 2, title: 'B', url: 'https://b.com', groupId: -1 },
-    ] as any);
+    browserState([tab(1, { title: 'A', url: 'https://a.com' }), tab(2, { title: 'B', url: 'https://b.com' })]);
     mockFetchLLM('[{"name":"Auto Group","color":"blue","tabIds":[1,2]}]');
 
     await (chrome.alarms.onAlarm as any).callListeners({ name: 'gtabs-check' });
     await vi.runAllTimersAsync();
     for (let i = 0; i < 15; i++) await new Promise(r => process.nextTick(r));
 
-    expect(chrome.tabs.group).toHaveBeenCalledWith({ tabIds: [1, 2] });
+    expect(chrome.tabs.group).toHaveBeenCalledWith({ tabIds: [1, 2], createProperties: { windowId: 1 } });
   });
 
   it('debounces tab changes for auto trigger', async () => {
@@ -590,7 +595,7 @@ describe('event listeners', () => {
 
   it('checks auto-trigger on tab update even when silent auto add is off', async () => {
     _resetAutoCheckCooldown();
-    await saveSettings({ ...DEFAULT_SETTINGS, ...TEST_SETTINGS, autoTrigger: true, threshold: 0, silentAutoAdd: false });
+    await saveSettings({ ...DEFAULT_SETTINGS, ...TEST_SETTINGS, autoTrigger: true, reorgSchedule: 'off', threshold: 0, silentAutoAdd: false });
     vi.mocked(chrome.tabs.query).mockResolvedValue([
       { id: 1, title: 'A', url: 'https://a.com', groupId: -1 },
       { id: 2, title: 'B', url: 'https://b.com', groupId: -1 },
@@ -598,9 +603,8 @@ describe('event listeners', () => {
     mockFetchLLM('[]');
 
     await (chrome.tabs.onUpdated as any).callListeners(1, { status: 'complete' }, { url: 'https://a.com', windowId: 1, groupId: -1 });
-    for (let i = 0; i < 20; i++) await new Promise(r => process.nextTick(r));
-
-    expect(fetch).toHaveBeenCalled();
+    await vi.runAllTimersAsync();
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
   });
 
   it('handles grouping failure gracefully on silent auto add', async () => {
@@ -728,7 +732,7 @@ describe('event listeners', () => {
         const isAsync = await (chrome.runtime.onMessage as any).callListeners(msg, {}, sendResponse);
         // We either expect `responded` to be true synchronously or after ticks
         for (let i = 0; i < 15; i++) await new Promise(r => process.nextTick(r));
-        if (msg.type === 'check-chrome-ai') {
+        if (msg.type === 'check-chrome-ai' || msg.type === 'apply') {
            expect(isAsync).toEqual([false]); // onMessage returns false for sync
         } else {
            expect(isAsync).toEqual([true]); // onMessage returns true to keep channel open

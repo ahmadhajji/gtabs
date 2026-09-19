@@ -1,3 +1,4 @@
+import { browserState, tab } from './browser-state';
 /**
  * Edge-case tests for storage, background, grouper utilities.
  * Covers boundary conditions, malformed inputs, and unusual browser states.
@@ -37,7 +38,7 @@ beforeEach(() => {
 describe('isTabUrlAllowed – edge cases', () => {
   it('blocks about:newtab', () => expect(isTabUrlAllowed('about:newtab')).toBe(false));
   it('blocks chrome-extension with path', () => expect(isTabUrlAllowed('chrome-extension://abc123/popup.html')).toBe(false));
-  it('allows ftp:// URLs', () => expect(isTabUrlAllowed('ftp://files.example.com')).toBe(true));
+  it('blocks ftp:// URLs', () => expect(isTabUrlAllowed('ftp://files.example.com')).toBe(false));
   it('blocks data: URLs for privacy', () => expect(isTabUrlAllowed('data:text/html,hello')).toBe(false));
   it('handles very long URLs', () => {
     const longUrl = 'https://example.com/' + 'a'.repeat(2000);
@@ -424,10 +425,10 @@ describe('organize – edge cases', () => {
     expect(result.error).toBeDefined();
   });
 
-  it('returns error for 0 tabs', async () => {
+  it('returns no work for 0 tabs', async () => {
     vi.mocked(chrome.tabs.query).mockResolvedValue([]);
     const result = await organize();
-    expect(result.error).toBeDefined();
+    expect(result.suggestions).toEqual([]);
   });
 
   it('handles LLM returning malformed JSON gracefully', async () => {
@@ -462,12 +463,12 @@ describe('applyGroups – edge cases', () => {
   });
 
   it('uses color preferences over suggestion color', async () => {
+    browserState([tab(1, { title: 'GH', url: 'https://github.com' })]).nextGroup = 300;
     // Pre-save a color preference
     const { saveGroupColorPref } = await import('../src/storage');
     await saveGroupColorPref('Dev', 'purple');
 
-    let groupIdCtr = 300;
-    vi.mocked(chrome.tabs.group).mockImplementation(async () => groupIdCtr++);
+
 
     const suggestions: GroupSuggestion[] = [
       { name: 'Dev', color: 'blue', tabs: [{ id: 1, title: 'GH', url: 'https://github.com' }] },
@@ -487,6 +488,7 @@ describe('applyGroups – edge cases', () => {
       { name: 'Pinned', color: 'blue', tabs: [{ id: 1, title: 'P', url: 'https://pinned.com' }] },
       { name: 'Normal', color: 'red', tabs: [{ id: 2, title: 'N', url: 'https://normal.com' }] },
     ];
+    browserState(suggestions.flatMap(g => g.tabs).map(t => tab(t.id, t)));
     await applyGroups(suggestions);
     // Only 'Normal' should create a group
     expect(chrome.tabs.group).toHaveBeenCalledTimes(1);

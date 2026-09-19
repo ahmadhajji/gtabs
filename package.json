@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "package": "rm -f gtabs-extension.zip && cd dist && (xattr -cr . 2>/dev/null || true) && zip -rX ../gtabs-extension.zip . -x '*.map' && cd .. && echo 'Packaged → gtabs-extension.zip'",
+    "package": "rm -f gtabs-extension.zip && cd dist && (xattr -cr . 2>/dev/null || true) && zip -rX ../gtabs-extension.zip . -x '*.map' && cd .. && echo 'Packaged \u2192 gtabs-extension.zip'",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev": "node build.mjs --watch"
+    "dev": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.38",
@@ -17,5 +18,6 @@
     "jsdom": "^29.0.1",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"
-  }
+  },
+  "packageManager": "pnpm@11.25.0"
 }

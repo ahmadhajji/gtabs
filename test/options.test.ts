@@ -1,111 +1,100 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { resetAllMocks } from './setup';
+import { getSettings, saveSettings } from '../src/storage';
 import { DEFAULT_SETTINGS } from '../src/types';
-import * as storage from '../src/storage';
 
-const html = readFileSync(resolve(__dirname, '../src/options.html'), 'utf-8');
+const html = readFileSync(resolve(__dirname, '../src/options.html'), 'utf8');
+const input = (id: string) => document.querySelector<HTMLInputElement>(`#${id}`)!;
+const click = (id: string) => document.querySelector<HTMLButtonElement>(`#${id}`)!.click();
+const selectProvider = (name: string) => {
+  const card = [...document.querySelectorAll<HTMLElement>('.provider-card')].find(c => c.querySelector('.name')?.textContent === name);
+  if (!card) throw new Error(`Missing provider ${name}`);
+  card.click();
+};
+async function load(): Promise<void> {
+  vi.resetModules();
+  document.body.innerHTML = html;
+  await import('../src/options');
+  await vi.waitFor(() => expect(document.querySelectorAll('.provider-card').length).toBeGreaterThan(0));
+}
 
-describe('Options Page', () => {
-  beforeEach(() => {
-    document.body.innerHTML = html;
-    resetAllMocks();
-    vi.clearAllMocks();
-    
-    // Reset chrome.runtime.sendMessage
-    let testConnectionCallCount = 0;
-    (chrome.runtime.sendMessage as any).mockImplementation((msg: any, cb: Function) => {
-      if (msg.type === 'check-chrome-ai') cb({ available: true });
-      else if (msg.type === 'fetch-ollama-models') cb({ models: ['llama2', 'mistral'] });
-      else if (msg.type === 'get-stats') cb({ stats: { totalOrganizations: 10, totalTabsGrouped: 50, lastOrganizedAt: Date.now() } });
-      else if (msg.type === 'get-costs') cb({ costs: { byProvider: { openai: { inputTokens: 10, outputTokens: 20, cost: 0.05 } }, totalInputTokens: 10, totalOutputTokens: 20, totalCost: 0.05 } });
-      else if (msg.type === 'test-connection') {
-        testConnectionCallCount += 1;
-        cb(testConnectionCallCount === 1 ? { status: 'done' } : { status: 'error', error: 'Failed' });
-      }
-      else if (msg.type === 'export-data') cb({ data: { test: 1 } });
-      else cb({ status: 'done' });
-    });
+beforeEach(async () => {
+  resetAllMocks();
+  localStorage.clear();
+  vi.mocked(chrome.runtime.sendMessage).mockImplementation((message, callback) => {
+    if (typeof callback !== 'function') throw new Error('Missing callback');
+    callback({ type: 'status', status: 'done', available: true, models: [], workspaceNames: [] });
+  });
+  await load();
+});
+
+describe('provider settings', () => {
+  it('saves a custom URL, optional key and free-form model and keeps profiles across switches and reload', async () => {
+    input('baseUrl').value = 'http://127.0.0.1:9988/api/v1///';
+    input('apiKey').value = ' test-secret ';
+    input('model-select').value = 'my/model-v2';
+    click('save-provider');
+    // The request must start in the click gesture, before a storage await.
+    expect(chrome.permissions.request).toHaveBeenCalledWith({ origins: ['http://127.0.0.1/*'] });
+    await vi.waitFor(async () => expect((await getSettings()).model).toBe('my/model-v2'));
+    expect((await getSettings()).baseUrl).toBe('http://127.0.0.1:9988/api/v1');
+    const synced = await chrome.storage.sync.get('settings');
+    expect(JSON.stringify(synced)).not.toContain('test-secret');
+    selectProvider('OpenRouter');
+    expect(input('apiKey').value).toBe('');
+    input('apiKey').value = 'router-test-key';
+    input('model-select').value = 'custom-router/model';
+    click('save-provider');
+    await vi.waitFor(async () => expect((await getSettings()).provider).toBe('openrouter'));
+    await load();
+    expect(input('model-select').value).toBe('custom-router/model');
+    selectProvider('OpenAI-compatible proxy');
+    expect(input('baseUrl').value).toBe('http://127.0.0.1:9988/api/v1');
+    expect(input('apiKey').value).toBe('test-secret');
+    expect(input('model-select').value).toBe('my/model-v2');
   });
 
-  it('loads and initializes the page with default settings', async () => {
-    vi.spyOn(storage, 'getSettings').mockResolvedValue(DEFAULT_SETTINGS);
-    vi.spyOn(storage, 'getDomainRules').mockResolvedValue([]);
-    const saveSpy = vi.spyOn(storage, 'saveSettings').mockResolvedValue();
-    const saveRulesSpy = vi.spyOn(storage, 'saveDomainRules').mockResolvedValue();
-    
-    // Dynamically import to run the init script
-    await import('../src/options');
-    for (let i = 0; i < 15; i++) await new Promise(r => process.nextTick(r));
+  it('denied host permission leaves the saved provider unchanged and explains recovery', async () => {
+    vi.mocked(chrome.permissions.request).mockResolvedValue(false);
+    input('baseUrl').value = 'https://proxy.example/v1';
+    input('model-select').value = 'model';
+    click('save-provider');
+    await vi.waitFor(() => expect(document.querySelector('#test-result')?.textContent).toContain('Host access denied'));
+    expect((await getSettings()).baseUrl).toBe('');
+  });
 
-    // Test Provider Selection
-    const providerGrid = document.getElementById('provider-grid');
-    expect(providerGrid?.children.length).toBeGreaterThan(0);
-    // Click the last provider (Ollama) and confirm the selection updates
-    (providerGrid!.lastElementChild as HTMLElement).click();
-    for (let i = 0; i < 5; i++) await new Promise(r => process.nextTick(r));
-    expect(providerGrid!.querySelector('.provider-card.selected .name')?.textContent).toBe('Ollama (Local)');
+  it('saves and tests an endpoint without authentication and retains an explicit Off schedule', async () => {
+    await saveSettings({ ...DEFAULT_SETTINGS, reorgSchedule: 'off' });
+    input('baseUrl').value = 'http://localhost:1234/v1';
+    input('model-select').value = 'model';
+    click('test-btn');
+    await vi.waitFor(() => expect(document.querySelector('#test-result')?.textContent).toBe('Connected!'));
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'test-connection' }, expect.any(Function));
+    expect((await getSettings()).apiKey).toBe('');
+    expect((await getSettings()).reorgSchedule).toBe('off');
+  });
 
-    // Click a hosted provider and verify API key UI is shown
-    (providerGrid!.children[1] as HTMLElement).click();
-    expect((document.getElementById('key-row') as HTMLElement).classList.contains('hidden')).toBe(false);
+  it('defaults to five minutes, allows disabling it, and never auto-saves incomplete provider drafts', async () => {
+    expect(input('reorgSchedule').value).toBe('five-minutes');
+    expect(input('mergeMode').checked).toBe(true);
+    input('baseUrl').value = 'incomplete';
+    input('model-select').value = 'draft';
+    input('reorgSchedule').value = 'off';
+    input('reorgSchedule').dispatchEvent(new Event('change'));
+    await vi.waitFor(async () => expect((await getSettings()).reorgSchedule).toBe('off'));
+    expect((await getSettings()).model).toBe('');
+    expect(chrome.permissions.request).not.toHaveBeenCalled();
+  });
 
-    // Test range bindings and auto-save
-    const maxGroups = document.getElementById('maxGroups') as HTMLInputElement;
-    maxGroups.value = '10';
-    maxGroups.dispatchEvent(new Event('input'));
-    maxGroups.dispatchEvent(new Event('change'));
-    expect(document.getElementById('maxGroupsVal')?.textContent).toBe('10');
-    expect(saveSpy).toHaveBeenCalled();
-
-    // Test Connection Button
-    const testBtn = document.getElementById('test-btn') as HTMLButtonElement;
-    testBtn.click();
-    for (let i = 0; i < 5; i++) await new Promise(r => process.nextTick(r));
-    expect(document.getElementById('test-result')?.textContent).toBe('Connected!');
-    
-    // Test Connection Button Error
-    (chrome.runtime.sendMessage as any).mockImplementationOnce((msg: any, cb: Function) => cb({ status: 'error', error: 'Failed' }));
-    testBtn.click();
-    for (let i = 0; i < 5; i++) await new Promise(r => process.nextTick(r));
-    expect(document.getElementById('test-result')?.textContent).toBe('Failed');
-
-    // Test adding a domain rule
-    const btnAddRule = document.getElementById('add-rule') as HTMLButtonElement;
-    btnAddRule.click();
-    for (let i = 0; i < 5; i++) await new Promise(r => process.nextTick(r));
-    expect(saveRulesSpy).toHaveBeenCalled();
-    const ruleInput = document.querySelector('.rule-domain') as HTMLInputElement;
-    expect(ruleInput).toBeTruthy();
-    
-    // Test rule edit
-    ruleInput.value = 'github.com';
-    ruleInput.dispatchEvent(new Event('change'));
-    expect(saveRulesSpy).toHaveBeenCalled();
-
-    // Test rule delete
-    const delRule = document.querySelector('.rule-delete') as HTMLButtonElement;
-    delRule.click();
-    for (let i = 0; i < 5; i++) await new Promise(r => process.nextTick(r));
-    expect(document.querySelector('.rule-domain')).toBeFalsy();
-
-    // Test Export
-    global.URL.createObjectURL = vi.fn().mockReturnValue('blob:test');
-    const exportBtn = document.getElementById('export-data') as HTMLButtonElement;
-    exportBtn.click();
-    for (let i = 0; i < 5; i++) await new Promise(r => process.nextTick(r));
-
-    // Test Import
-    const importBtn = document.getElementById('import-data') as HTMLButtonElement;
-    const importFile = document.getElementById('import-file') as HTMLInputElement;
-    importBtn.click(); // does importFile.click()
-    
-    // Mock files array
-    Object.defineProperty(importFile, 'files', {
-      value: [new File([JSON.stringify({ settings: DEFAULT_SETTINGS })], 'export.json')]
-    });
-    importFile.dispatchEvent(new Event('change'));
-    for (let i = 0; i < 5; i++) await new Promise(r => process.nextTick(r));
+  it('requires a URL/model and does not copy a provider key to another endpoint', async () => {
+    click('save-provider');
+    await vi.waitFor(() => expect(document.querySelector('#test-result')?.textContent).toContain('model ID'));
+    selectProvider('OpenRouter');
+    input('apiKey').value = 'router-test-key';
+    selectProvider('OpenAI-compatible proxy');
+    expect(input('apiKey').value).toBe('');
+    expect(chrome.permissions.request).not.toHaveBeenCalled();
   });
 });

@@ -77,10 +77,9 @@ describe('complete - response handling', () => {
     expect(result).toBe('{"result": true}');
   });
 
-  it('returns empty string content', async () => {
+  it('rejects empty content', async () => {
     mockOk('');
-    const result = await complete(cfg, [{ role: 'user', content: 'test' }]);
-    expect(result).toBe('');
+    await expect(complete(cfg, [{ role: 'user', content: 'test' }])).rejects.toThrow('Empty or malformed');
   });
 
   it('returns content with unicode characters', async () => {
@@ -125,7 +124,7 @@ describe('complete - error handling', () => {
     let caught: Error | null = null;
     try { await complete(cfg, [{ role: 'user', content: 'hi' }]); } catch (e) { caught = e as Error; }
     expect(caught).not.toBeNull();
-    expect(caught!.message).toContain('Network error');
+    expect(caught!.message).toContain('Could not read');
   });
 
   it('throws on 401 Unauthorized', async () => {
@@ -148,9 +147,9 @@ describe('complete - error handling', () => {
     await expect(complete(cfg, [{ role: 'user', content: 'hi' }])).rejects.toThrow('503');
   });
 
-  it('includes response body in error message', async () => {
+  it('omits raw response bodies from errors', async () => {
     vi.mocked(fetch).mockResolvedValue(new Response('{"error":"bad model"}', { status: 400 }));
-    await expect(complete(cfg, [{ role: 'user', content: 'hi' }])).rejects.toThrow('bad model');
+    await expect(complete(cfg, [{ role: 'user', content: 'hi' }])).rejects.toThrow('LLM error 400. Check your provider settings.');
   });
 
   it('throws on non-JSON response body', async () => {
@@ -172,7 +171,7 @@ describe('complete - error handling', () => {
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: null } }],
     })));
-    await expect(complete(cfg, [{ role: 'user', content: 'hi' }])).rejects.toThrow('Empty response');
+    await expect(complete(cfg, [{ role: 'user', content: 'hi' }])).rejects.toThrow('Empty or malformed');
   });
 });
 
@@ -268,7 +267,7 @@ describe('complete - Anthropic API', () => {
 
   it('throws on Anthropic network failure', async () => {
     (globalThis as any).fetch = vi.fn(async () => { throw new Error('Failed to fetch'); });
-    await expect(complete(anthropicCfg, [{ role: 'user', content: 'hi' }])).rejects.toThrow('Failed to fetch');
+    await expect(complete(anthropicCfg, [{ role: 'user', content: 'hi' }])).rejects.toThrow('Could not read');
   });
 
   it('throws on Anthropic malformed response (missing content field)', async () => {
@@ -293,18 +292,17 @@ describe('fetchOllamaModels', () => {
 
   it('throws error if fetch fails', async () => {
     vi.mocked(fetch).mockResolvedValue(new Response('', { status: 404 }));
-    await expect(fetchOllamaModels('http://localhost:11434')).rejects.toThrow('Could not connect');
+    await expect(fetchOllamaModels('http://localhost:11434')).rejects.toThrow('404');
   });
 
-  it('falls back to empty array if no models returned', async () => {
+  it('rejects missing model list', async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({})));
-    const models = await fetchOllamaModels('http://localhost:11434');
-    expect(models).toEqual([]);
+    await expect(fetchOllamaModels('http://localhost:11434')).rejects.toThrow('Could not read Ollama models');
   });
 
   it('throws on network error', async () => {
     (globalThis as any).fetch = vi.fn(async () => { throw new Error('connection refused'); });
-    await expect(fetchOllamaModels('http://localhost:11434')).rejects.toThrow('connection refused');
+    await expect(fetchOllamaModels('http://localhost:11434')).rejects.toThrow('Could not read');
   });
 });
 
@@ -355,5 +353,42 @@ describe('Chrome AI', () => {
     
     expect(mockCreate).toHaveBeenCalledWith({});
     delete (globalThis as any).LanguageModel;
+  });
+});
+
+describe('OpenAI-compatible transports', () => {
+  it.each(['https://openrouter.ai/api/v1/', 'http://127.0.0.1:9876/custom/v1///'])('handles the configured endpoint %s and free-form model IDs', async baseUrl => {
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: 'OK' } }] })));
+    await complete({ baseUrl, model: 'owner/model:custom', apiKey: '' }, [{ role: 'user', content: 'test' }]);
+    const [url, init] = vi.mocked(fetch).mock.calls.at(-1)!;
+    expect(url).toBe(baseUrl.replace(/\/+$/, '') + '/chat/completions');
+    expect(init?.headers).not.toHaveProperty('Authorization');
+    expect(JSON.parse(String(init?.body)).model).toBe('owner/model:custom');
+    expect(init?.redirect).toBe('error');
+  });
+
+  it('rejects non-string message content', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: { unsafe: 'object' } } }] })));
+    await expect(complete(cfg, [{ role: 'user', content: 'test' }])).rejects.toThrow('malformed');
+  });
+
+  it('times out both waiting for headers and reading the response body', async () => {
+    vi.useFakeTimers();
+    try {
+      for (const phase of ['headers', 'body']) {
+        vi.mocked(fetch).mockImplementation((_url, init) => {
+          const pending = new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+          });
+          if (phase === 'headers') return pending;
+          const response = new Response('{}');
+          vi.spyOn(response, 'json').mockImplementation(() => pending);
+          return Promise.resolve(response);
+        });
+        const result = expect(complete(cfg, [{ role: 'user', content: 'test' }])).rejects.toThrow('timed out after 25s');
+        await vi.advanceTimersByTimeAsync(25_001);
+        await result;
+      }
+    } finally { vi.useRealTimers(); }
   });
 });

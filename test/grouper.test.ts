@@ -402,61 +402,49 @@ describe('parseResponse', () => {
     expect(result).toHaveLength(1);
   });
 
-  it('filters out invalid tab IDs', () => {
+  it('rejects malformed groups: filters out invalid tab IDs', () => {
     const raw = '[{"name":"Dev","color":"blue","tabIds":[1,999,2]}]';
-    const result = parseResponse(raw, tabs);
-    expect(result[0].tabs).toHaveLength(2);
-    expect(result[0].tabs.map(t => t.id)).toEqual([1, 2]);
+    expect(() => parseResponse(raw, tabs)).toThrow();
   });
 
-  it('drops groups with no valid tabs', () => {
+  it('rejects malformed groups: drops groups with no valid tabs', () => {
     const raw = '[{"name":"Empty","color":"blue","tabIds":[999]},{"name":"Dev","color":"red","tabIds":[1]}]';
-    const result = parseResponse(raw, tabs);
-    expect(result).toHaveLength(1);
-    expect(result[0].name).toBe('Dev');
+    expect(() => parseResponse(raw, tabs)).toThrow();
   });
 
-  it('defaults invalid color to grey', () => {
+  it('rejects malformed groups: defaults invalid color to grey', () => {
     const raw = '[{"name":"Dev","color":"neon","tabIds":[1]}]';
-    const result = parseResponse(raw, tabs);
-    expect(result[0].color).toBe('grey');
+    expect(() => parseResponse(raw, tabs)).toThrow();
   });
 
-  it('defaults missing color to grey', () => {
+  it('rejects malformed groups: defaults missing color to grey', () => {
     const raw = '[{"name":"Dev","tabIds":[1]}]';
-    const result = parseResponse(raw, tabs);
-    expect(result[0].color).toBe('grey');
+    expect(() => parseResponse(raw, tabs)).toThrow();
   });
 
-  it('defaults empty name to Unnamed', () => {
+  it('rejects malformed groups: defaults empty name to Unnamed', () => {
     const raw = '[{"name":"","color":"blue","tabIds":[1]}]';
-    const result = parseResponse(raw, tabs);
-    expect(result[0].name).toBe('Unnamed');
+    expect(() => parseResponse(raw, tabs)).toThrow();
   });
 
-  it('defaults missing name to Unnamed', () => {
+  it('rejects malformed groups: defaults missing name to Unnamed', () => {
     const raw = '[{"color":"blue","tabIds":[1]}]';
-    const result = parseResponse(raw, tabs);
-    expect(result[0].name).toBe('Unnamed');
+    expect(() => parseResponse(raw, tabs)).toThrow();
   });
 
-  it('handles empty tabIds array', () => {
+  it('rejects malformed groups: handles empty tabIds array', () => {
     const raw = '[{"name":"Empty","color":"blue","tabIds":[]},{"name":"Dev","color":"red","tabIds":[1]}]';
-    const result = parseResponse(raw, tabs);
-    expect(result).toHaveLength(1);
-    expect(result[0].name).toBe('Dev');
+    expect(() => parseResponse(raw, tabs)).toThrow();
   });
 
-  it('handles missing tabIds field', () => {
+  it('rejects malformed groups: handles missing tabIds field', () => {
     const raw = '[{"name":"Dev","color":"blue"}]';
-    const result = parseResponse(raw, tabs);
-    expect(result).toHaveLength(0);
+    expect(() => parseResponse(raw, tabs)).toThrow();
   });
 
-  it('handles empty JSON array', () => {
+  it('rejects malformed groups: handles empty JSON array', () => {
     const raw = '[]';
-    const result = parseResponse(raw, tabs);
-    expect(result).toHaveLength(0);
+    expect(() => parseResponse(raw, tabs)).toThrow();
   });
 
   it('throws on completely unparseable response', () => {
@@ -471,10 +459,9 @@ describe('parseResponse', () => {
     expect(() => parseResponse('{"name":"Dev"}', tabs)).toThrow('not an array');
   });
 
-  it('handles number as name (coerces to string)', () => {
+  it('rejects malformed groups: handles number as name (coerces to string)', () => {
     const raw = '[{"name":42,"color":"blue","tabIds":[1]}]';
-    const result = parseResponse(raw, tabs);
-    expect(result[0].name).toBe('42');
+    expect(() => parseResponse(raw, tabs)).toThrow();
   });
 
   it('handles all valid colors', () => {
@@ -485,11 +472,9 @@ describe('parseResponse', () => {
     }
   });
 
-  it('handles duplicate tab IDs in same group', () => {
+  it('rejects malformed groups: handles duplicate tab IDs in same group', () => {
     const raw = '[{"name":"Dev","color":"blue","tabIds":[1,1,2]}]';
-    const result = parseResponse(raw, tabs);
-    // All valid IDs kept — dedup is not enforced at this layer
-    expect(result[0].tabs.length).toBeGreaterThanOrEqual(2);
+    expect(() => parseResponse(raw, tabs)).toThrow();
   });
 
   it('handles response with BOM character', () => {
@@ -550,7 +535,7 @@ describe('suggest', () => {
   });
 
   it('applies wildcard domain rules before LLM call', async () => {
-    mockLLM('[{"name":"Other","color":"green","tabIds":[2]}]');
+    mockLLM('[{"name":"Other","color":"green","tabIds":[31]}]');
     const awsTabs: TabInfo[] = [
       {
         id: 30,
@@ -597,7 +582,7 @@ describe('suggest', () => {
     let caught: Error | null = null;
     try { await suggest(tabs, TEST_SETTINGS, {}); } catch (e) { caught = e as Error; }
     expect(caught).not.toBeNull();
-    expect(caught!.message).toContain('timeout');
+    expect(caught!.message).toContain('Could not read');
   });
 
   it('uses system message for LLM', async () => {
