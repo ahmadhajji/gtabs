@@ -3,6 +3,7 @@ import { resetAllMocks, emit } from './setup';
 import { browserState, tab } from './browser-state';
 import { DEFAULT_SETTINGS, type Settings } from '../src/types';
 import { getSettings, getUndoSnapshot, saveSettings } from '../src/storage';
+import * as storage from '../src/storage';
 import { organizeAndApply, getOrganizationStatus, setupReorgAlarm, undoLastGrouping } from '../src/background';
 
 const configured: Settings = { ...DEFAULT_SETTINGS, provider: 'custom', baseUrl: 'http://127.0.0.1:9876/v1', model: 'user/model' };
@@ -182,4 +183,46 @@ describe('persistent alarms', () => {
     expect(fetch).not.toHaveBeenCalled();
     expect((await getSettings()).reorgSchedule).toBe('five-minutes');
   });
+});
+
+describe('application interleavings', () => {
+  it('undo leaves a tab alone when the user regroups it during an earlier group application', async () => {
+    const state = browserState([tab(1), tab(2)]);
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content:
+      '[{"name":"First","color":"blue","tabIds":[1]},{"name":"Second","color":"red","tabIds":[2]}]'
+    } }] })));
+    const update = vi.mocked(chrome.tabGroups.update).getMockImplementation()!;
+    vi.mocked(chrome.tabGroups.update).mockImplementation(async (id, changes) => {
+      state.tabs[1].groupId = 77;
+      return update(id, changes);
+    });
+    await organizeAndApply(1);
+    expect((await getUndoSnapshot())?.positions?.map(p => p.tabId)).toEqual([1]);
+    await undoLastGrouping();
+    expect(state.tabs.map(t => t.groupId)).toEqual([-1, 77]);
+  });
+
+  it('protects matching group names consistently before sending titles to the model', async () => {
+    browserState([tab(1, { groupId: 12 }), tab(2)], [{ id: 12, windowId: 1, title: 'Work', color: 'red', collapsed: false }]);
+    await saveSettings({ ...configured, mergeMode: false, pinnedGroups: ['work'] });
+    vi.mocked(fetch).mockResolvedValue(response([2], 'New'));
+    await organizeAndApply(1);
+    expect(String(vi.mocked(fetch).mock.calls[0][1]?.body)).not.toContain('site1.example');
+    expect(chrome.tabs.group).toHaveBeenCalledWith({ tabIds: [2], createProperties: { windowId: 1 } });
+  });
+});
+
+it('holds the shared lock while fast routing awaits settings', async () => {
+  const state = browserState([tab(1)], [{ id: 8, windowId: 1, title: 'Work', color: 'blue', collapsed: false }]);
+  await chrome.storage.local.set({ affinity: { 'site1.example': 'Work' } });
+  let release: (settings: Settings) => void = () => { throw new Error('Routing not started'); };
+  const spy = vi.spyOn(storage, 'getSettings').mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  const routing = emit(chrome.tabs.onUpdated, 1, { status: 'complete' }, state.tabs[0]);
+  expect((await organizeAndApply(1)).state).toBe('running');
+  expect((await undoLastGrouping()).error).toContain('Wait');
+  release({ ...configured, silentAutoAdd: true });
+  await routing;
+  spy.mockRestore();
+  expect(state.tabs[0].groupId).toBe(8);
+  expect(fetch).not.toHaveBeenCalled();
 });

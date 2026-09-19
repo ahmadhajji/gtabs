@@ -57,6 +57,10 @@ import { completeWithUsage, fetchOllamaModels, isChromeAIAvailable, testConnecti
 
 import { requireProvider } from './provider';
 
+function protectedGroupNames(settings: Settings): Set<string> {
+  return new Set(settings.pinnedGroups.map(name => name.toLowerCase()));
+}
+
 const ALARM_NAME = 'gtabs-check';
 const REORG_ALARM_NAME = 'gtabs-reorg';
 const SNOOZE_ALARM_PREFIX = 'gtabs-snooze-';
@@ -395,7 +399,8 @@ export async function organize(ungroupedOnly = false, targetWindowId?: number, c
     const windowId = targetWindowId ?? await getCurrentWindowId();
     const allTabs = capturedTabs ?? await chrome.tabs.query({ windowId });
     const existingGroups = await chrome.tabGroups.query({ windowId });
-    const protectedIds = new Set(existingGroups.filter(g => settings.pinnedGroups.includes(g.title || '')).map(g => g.id));
+    const protectedNames = protectedGroupNames(settings);
+    const protectedIds = new Set(existingGroups.filter(g => protectedNames.has((g.title || '').toLowerCase())).map(g => g.id));
     let tabs: TabInfo[] = allTabs.filter(t => t.id !== undefined && !t.pinned && !t.incognito &&
       isTabUrlAllowed(t.url) && !protectedIds.has(t.groupId))
       .map(t => ({ id: t.id!, title: t.title || '', url: t.url! }));
@@ -474,7 +479,6 @@ export async function organize(ungroupedOnly = false, targetWindowId?: number, c
     const historyHint = summarizeHistory(history) + (existingGroupNames.length ? `\nReuse these existing group names when appropriate: ${JSON.stringify(existingGroupNames)}\n` : '');
     const result = tabsForLLM.length >= 1
       ? await suggest(tabsForLLM, settings, affinity, domainRules, historyHint, extraHints)
-      // Keep a single leftover tab ungrouped instead of forcing an "Other" group.
       : { suggestions: [] as GroupSuggestion[], inputTokens: 0, outputTokens: 0 };
 
     const allSuggestions = [...preMatched, ...result.suggestions];
@@ -490,13 +494,13 @@ export async function organize(ungroupedOnly = false, targetWindowId?: number, c
   }
 }
 
-export async function applyGroups(suggestions: GroupSuggestion[], targetWindowId?: number, capturedTabs?: chrome.tabs.Tab[]): Promise<void> {
+export async function applyGroups(suggestions: GroupSuggestion[], targetWindowId?: number, capturedTabs?: chrome.tabs.Tab[]): Promise<number> {
   const windowId = targetWindowId ?? await getCurrentWindowId();
   const settings = await getSettings();
   const live = await chrome.tabs.query({ windowId });
   const before = capturedTabs ?? live;
   const existingGroups = await chrome.tabGroups.query({ windowId });
-  const protectedNames = new Set(settings.pinnedGroups.map(n => n.toLowerCase()));
+  const protectedNames = protectedGroupNames(settings);
   const protectedIds = new Set(existingGroups.filter(g => protectedNames.has((g.title || '').toLowerCase())).map(g => g.id));
   const seen = new Set<number>();
   const filtered = suggestions.filter(g => !protectedNames.has(g.name.toLowerCase())).map(g => ({
@@ -511,13 +515,12 @@ export async function applyGroups(suggestions: GroupSuggestion[], targetWindowId
       return true;
     }),
   })).filter(g => g.tabs.length);
-  if (!filtered.length) return;
+  if (!filtered.length) return 0;
 
   const snapshot = await snapshotCurrentState(windowId);
   snapshot.groups = snapshot.groups.filter(t => seen.has(t.tabId));
   snapshot.ungrouped = snapshot.ungrouped.filter(id => seen.has(id));
   snapshot.positions = snapshot.positions?.filter(t => seen.has(t.tabId));
-  await saveUndoSnapshot(snapshot);
   const colorPrefs = await getGroupColorPrefs();
   try {
     for (const group of filtered) {
@@ -535,26 +538,35 @@ export async function applyGroups(suggestions: GroupSuggestion[], targetWindowId
       const existing = groups.find(g => g.title?.toLowerCase() === group.name.toLowerCase());
       const id = await chrome.tabs.group({ tabIds: [tabIds[0], ...tabIds.slice(1)], ...(existing ? { groupId: existing.id } : { createProperties: { windowId } }) });
       for (const pos of snapshot.positions ?? []) if (tabIds.includes(pos.tabId)) pos.appliedGroupId = id;
-      await saveUndoSnapshot(snapshot);
+      await saveUndoSnapshot(appliedSnapshot(snapshot));
       if (!existing) await chrome.tabGroups.update(id, { title: group.name, color: colorPrefs[group.name] || group.color, collapsed: false });
     }
   } catch {
+    const applied = appliedSnapshot(snapshot);
+    if (!applied.positions?.length) throw new Error('Could not apply groups. No tabs were changed.');
     try {
-      await restoreSnapshot(snapshot);
+      await restoreSnapshot(applied);
       await saveUndoSnapshot(null);
-      throw new Error('Could not apply groups. The previous arrangement was restored.');
-    } catch (error) {
-      if (error instanceof Error && error.message.startsWith('Could not apply')) throw error;
+    } catch {
       throw new Error('Could not apply all groups. Use Undo to recover the previous arrangement.');
     }
+    throw new Error('Could not apply groups. The previous arrangement was restored.');
   }
   const appliedIds = new Set(snapshot.positions?.filter(p => p.appliedGroupId !== undefined).map(p => p.tabId));
   const applied = filtered.map(g => ({ ...g, tabs: g.tabs.filter(t => appliedIds.has(t.id)) })).filter(g => g.tabs.length);
+  if (!appliedIds.size) return 0;
   await updateAffinity(applied);
   await addHistory(applied);
   await incrementStats(appliedIds.size);
   await saveSuggestions(null);
   await chrome.action.setBadgeText({ text: '' });
+  return appliedIds.size;
+}
+
+function appliedSnapshot(snapshot: UndoSnapshot): UndoSnapshot {
+  const positions = snapshot.positions?.filter(p => p.appliedGroupId !== undefined) ?? [];
+  const ids = new Set(positions.map(p => p.tabId));
+  return { ...snapshot, positions, groups: snapshot.groups.filter(t => ids.has(t.tabId)), ungrouped: snapshot.ungrouped.filter(id => ids.has(id)) };
 }
 
 let organizationInFlight = false;
@@ -610,8 +622,8 @@ export async function organizeAndApply(windowId?: number, automatic = false, ung
       if (result.error) throw new Error(result.error);
       if (JSON.stringify(await getSettings()) !== JSON.stringify(settings)) throw new Error('Settings changed during organization. Try again.');
       if (result.suggestions?.length) {
-        await applyGroups(result.suggestions, win.id, tabs);
-        changed = true;
+        const count = await applyGroups(result.suggestions, win.id, tabs);
+        changed = changed || count > 0;
       }
       // Store the captured input, not tabs added/navigated while the request was pending.
       const current = await chrome.tabs.query({ windowId: win.id });
@@ -1355,74 +1367,79 @@ chrome.tabs.onUpdated?.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status !== 'complete' || !tab.url || tab.windowId === undefined) return;
   if (!isTabUrlAllowed(tab.url)) return;
 
-  triggerAutoCheck();
-
-  if (isGroupedTab(tab)) {
-    const settings = await getSettings();
-    if (settings.smartUngroup) {
-      try {
-        const groupTabs = await chrome.tabs.query({ groupId: tab.groupId, windowId: tab.windowId });
-        const otherTabs = groupTabs.filter(t => t.id !== tabId && isTabUrlAllowed(t.url));
-        const newDomain = hostnameFromUrl(tab.url);
-        if (otherTabs.length > 0 && newDomain) {
-          const groupDomains = otherTabs.map(t => hostnameFromUrl(t.url!)).filter(Boolean);
-          // Handle ccTLDs like .co.uk, .com.au
-          const baseDomain = (d: string) => {
-            const parts = d.split('.');
-            if (parts.length >= 3) {
-              const tld = parts[parts.length - 1];
-              const sld = parts[parts.length - 2];
-              if (tld.length === 2 && SECONDARY_TLDS.has(sld)) return parts.slice(-3).join('.');
-            }
-            return parts.slice(-2).join('.');
-          };
-          const isRelated = groupDomains.some(d => baseDomain(d) === baseDomain(newDomain));
-          if (!isRelated) {
-            await ungroupTabsSafe([tabId]);
-          }
-        }
-      } catch { /* ignore */ }
-    }
-    return;
-  }
-
-  const settings = await getSettings();
-  if (!settings.silentAutoAdd) return;
-
-  // 1. Check opener — if opener is in a group, prefer that group
-  const openerId = openerMap.get(tabId);
-  if (openerId !== undefined) {
-    try {
-      const openerTab = await chrome.tabs.get(openerId);
-      if (isGroupedTab(openerTab) && openerTab.windowId === tab.windowId) {
-        await groupTabsSafe([tabId], openerTab.groupId);
-        return;
-      }
-    } catch { /* opener may have been closed */ }
-  }
-
-  // 2. Use enhanced inferTargetGroup with weighted affinity and rejections
-  const [rules, affinity, weightedAffinity, rejections] = await Promise.all([
-    getDomainRules(), getAffinity(), getWeightedAffinity(), getRejections(),
-  ]);
-  const inferred = inferTargetGroup(tab.url, rules, affinity, weightedAffinity, rejections);
-  if (!inferred) return;
-
+  organizationInFlight = true;
   try {
-    const groups = await chrome.tabGroups.query({ windowId: tab.windowId, title: inferred.name });
-    if (groups.length > 0) {
-      await groupTabsSafe([tabId], groups[0].id);
-    } else {
-      const newGroupId = await groupTabsSafe([tabId]);
-      if (newGroupId === null) return;
-      await chrome.tabGroups.update(newGroupId, {
-        title: inferred.name,
-        color: inferred.color || 'grey',
-        collapsed: false,
-      });
+
+    if (isGroupedTab(tab)) {
+      const settings = await getSettings();
+      if (settings.smartUngroup) {
+        try {
+          const groupTabs = await chrome.tabs.query({ groupId: tab.groupId, windowId: tab.windowId });
+          const otherTabs = groupTabs.filter(t => t.id !== tabId && isTabUrlAllowed(t.url));
+          const newDomain = hostnameFromUrl(tab.url);
+          if (otherTabs.length > 0 && newDomain) {
+            const groupDomains = otherTabs.map(t => hostnameFromUrl(t.url!)).filter(Boolean);
+            // Handle ccTLDs like .co.uk, .com.au
+            const baseDomain = (d: string) => {
+              const parts = d.split('.');
+              if (parts.length >= 3) {
+                const tld = parts[parts.length - 1];
+                const sld = parts[parts.length - 2];
+                if (tld.length === 2 && SECONDARY_TLDS.has(sld)) return parts.slice(-3).join('.');
+              }
+              return parts.slice(-2).join('.');
+            };
+            const isRelated = groupDomains.some(d => baseDomain(d) === baseDomain(newDomain));
+            if (!isRelated) {
+              await ungroupTabsSafe([tabId]);
+            }
+          }
+        } catch { /* ignore */ }
+      }
+      return;
     }
-  } catch {
-    // Ignored if grouping fails while the window is changing.
+
+    const settings = await getSettings();
+    if (!settings.silentAutoAdd) return;
+
+    // 1. Check opener — if opener is in a group, prefer that group
+    const openerId = openerMap.get(tabId);
+    if (openerId !== undefined) {
+      try {
+        const openerTab = await chrome.tabs.get(openerId);
+        if (isGroupedTab(openerTab) && openerTab.windowId === tab.windowId) {
+          await groupTabsSafe([tabId], openerTab.groupId);
+          return;
+        }
+      } catch { /* opener may have been closed */ }
+    }
+
+    // 2. Use enhanced inferTargetGroup with weighted affinity and rejections
+    const [rules, affinity, weightedAffinity, rejections] = await Promise.all([
+      getDomainRules(), getAffinity(), getWeightedAffinity(), getRejections(),
+    ]);
+    const inferred = inferTargetGroup(tab.url, rules, affinity, weightedAffinity, rejections);
+    if (!inferred) return;
+
+    try {
+      const groups = await chrome.tabGroups.query({ windowId: tab.windowId, title: inferred.name });
+      if (groups.length > 0) {
+        await groupTabsSafe([tabId], groups[0].id);
+      } else {
+        const newGroupId = await groupTabsSafe([tabId]);
+        if (newGroupId === null) return;
+        await chrome.tabGroups.update(newGroupId, {
+          title: inferred.name,
+          color: inferred.color || 'grey',
+          collapsed: false,
+        });
+      }
+    } catch {
+      // Ignored if grouping fails while the window is changing.
+    }
+  } finally {
+    organizationInFlight = false;
+    triggerAutoCheck();
   }
 });
 

@@ -697,3 +697,13 @@ describe('co-occurrence', () => {
     expect(await summarizeCoOccurrence()).toBe('');
   });
 });
+
+describe('undo session lifetime', () => {
+  it('ignores snapshots from a previous browser session stored by older versions', async () => {
+    await chrome.storage.local.set({ undoSnapshot: { timestamp: 1, windowId: 1, groups: [], ungrouped: [1] } });
+    expect(await getUndoSnapshot()).toBeNull();
+    await saveUndoSnapshot({ timestamp: 2, windowId: 1, groups: [], ungrouped: [2] });
+    expect((await getUndoSnapshot())?.ungrouped).toEqual([2]);
+    expect((await chrome.storage.local.get('undoSnapshot')).undoSnapshot).toEqual({ timestamp: 1, windowId: 1, groups: [], ungrouped: [1] });
+  });
+});

@@ -25,7 +25,7 @@ The interval is approximate. Browser sleep and shutdown delay alarms. gTabs chec
 
 No tab closing, deduplication, purging, snoozing, or automatic pinning is part of Organize. Those existing tools remain separate in Settings. This fork is disabled in incognito windows. Eligible tab titles and URLs are sent to the configured provider; browser-internal pages and pinned tabs are excluded from organization.
 
-Only one organization or undo operation runs at a time. Model output is validated before application, and changed, closed, moved, or manually grouped tabs are checked again before applying. API or validation failures leave the arrangement untouched. Browser application errors trigger rollback, with Undo retained if recovery fails. Browser APIs are not transactional, so a browser crash or a concurrent user change can prevent complete recovery. Undo affects only the last applied window's tabs; it skips tabs subsequently navigated, pinned, moved to another window, or reassigned to another group.
+Only one organization or undo operation runs at a time. Model output is validated before application, and changed, closed, moved, or manually grouped tabs are checked again before applying. API or validation failures leave the arrangement untouched. Browser application errors trigger rollback, with Undo retained if recovery fails. Browser APIs are not transactional, so a browser crash or a concurrent user change can prevent complete recovery. Undo history survives worker restarts but is cleared when the browser exits because tab IDs may be reused. Undo affects only the last applied window's tabs; it skips tabs subsequently navigated, pinned, moved to another window, or reassigned to another group.
 
 ## Build and verify
 

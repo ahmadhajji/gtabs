@@ -340,15 +340,15 @@ export async function removeWorkspace(name: string): Promise<void> {
   await chrome.storage.local.set({ [K.workspaces]: ws });
 }
 
-// --- Undo Snapshot (local) ---
+// --- Undo Snapshot (session: tab IDs must not outlive the browser) ---
 
 export async function getUndoSnapshot(): Promise<UndoSnapshot | null> {
-  const data = await chrome.storage.local.get({ [K.undoSnapshot]: null });
+  const data = await chrome.storage.session.get({ [K.undoSnapshot]: null });
   return data[K.undoSnapshot] as UndoSnapshot | null;
 }
 
 export async function saveUndoSnapshot(snapshot: UndoSnapshot | null): Promise<void> {
-  await chrome.storage.local.set({ [K.undoSnapshot]: snapshot });
+  await chrome.storage.session.set({ [K.undoSnapshot]: snapshot });
 }
 
 // --- Stats (local) ---
