@@ -1440,8 +1440,10 @@ chrome.tabs.onUpdated?.addListener(async (tabId, changeInfo, tab) => {
       // Ignored if grouping fails while the window is changing.
     }
   } finally {
+    const restoredStatus = { ...previousStatus, canUndo: Boolean(await getUndoSnapshot()) };
+    organizationStatus = restoredStatus;
     organizationInFlight = false;
-    await setOrganizationStatus(previousStatus.state, previousStatus.message);
+    await chrome.storage.session.set({ organizationStatus: restoredStatus });
     triggerAutoCheck();
   }
 });

@@ -231,3 +231,21 @@ it('holds the shared lock while fast routing awaits settings', async () => {
   expect(published.organizationStatus).toMatchObject({ state: previousState });
   expect(fetch).not.toHaveBeenCalled();
 });
+
+it('keeps routing ownership until its restored status is ready to publish', async () => {
+  const state = browserState([tab(1)]);
+  let release: (snapshot: null) => void = () => { throw new Error('Cleanup not started'); };
+  const spy = vi.spyOn(storage, 'getUndoSnapshot')
+    .mockResolvedValueOnce(null)
+    .mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  const first = emit(chrome.tabs.onUpdated, 1, { status: 'complete' }, state.tabs[0]);
+  await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+  expect((await organizeAndApply(1)).state).toBe('running');
+  await emit(chrome.tabs.onUpdated, 1, { status: 'complete' }, state.tabs[0]);
+  expect(spy).toHaveBeenCalledTimes(2);
+  release(null);
+  await first;
+  spy.mockRestore();
+  expect((await getOrganizationStatus()).state).not.toBe('running');
+  expect((await chrome.storage.session.get('organizationStatus')).organizationStatus).not.toMatchObject({ state: 'running' });
+});
