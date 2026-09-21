@@ -1,5 +1,13 @@
 import { PROVIDERS, type LLMConfig, type Settings } from './types';
 
+export function classificationEndpoint(config: LLMConfig & { provider?: string }): string | null {
+  if (config.provider === 'jev') return `${normalizeBaseUrl(config.baseUrl)}/systemone`;
+  if ((config.provider === 'openrouter' || config.provider === 'openrouter-free') && /^~?typesafe\/jev(?:-|$)/.test(config.model.trim())) {
+    return `${normalizeBaseUrl(config.baseUrl).replace(/\/v1$/, '')}/alpha/decisions`;
+  }
+  return null;
+}
+
 export function normalizeBaseUrl(value: string): string {
   let url: URL;
   try { url = new URL(value.trim()); } catch { throw new Error('Enter a valid API base URL.'); }
@@ -20,6 +28,9 @@ export function validateProvider(config: LLMConfig & { provider: string }): LLMC
   if (!provider) throw new Error('Choose a provider in Settings.');
   const model = config.model.trim();
   if (!model) throw new Error('Enter a model ID in Settings.');
+  if ((config.provider === 'openrouter' || config.provider === 'openrouter-free') && /^jev(?:-|$)/.test(model)) {
+    throw new Error('For Jev on OpenRouter, use model ID typesafe/jev-1.13.');
+  }
   const apiKey = config.apiKey.trim();
   if (provider.needsKey && !apiKey) throw new Error('Enter an API key in Settings.');
   return { baseUrl: provider.isBuiltIn ? '' : normalizeBaseUrl(config.baseUrl), model, apiKey };

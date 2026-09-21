@@ -3,7 +3,7 @@ import { DEFAULT_SETTINGS, PROVIDERS, COLORS } from './types';
 import { getSettings, saveSettings, getDomainRules, saveDomainRules } from './storage';
 
 import { sendMessage as sendMsg } from './messages';
-import { endpointPermission, validateProvider } from './provider';
+import { classificationEndpoint, endpointPermission, validateProvider } from './provider';
 import { parseCategories } from './categories';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -133,19 +133,31 @@ function rememberDraft(): void {
   });
 }
 
+function updateClassificationSettings(): void {
+  const endpoint = currentProvider && classificationEndpoint({
+    provider: currentProvider.id, baseUrl: inBaseUrl.value, apiKey: inApiKey.value, model: modelSelect.value,
+  });
+  $<HTMLDivElement>('jev-settings').classList.toggle('hidden', !endpoint);
+}
+
+modelSelect.addEventListener('input', updateClassificationSettings);
+modelSelect.addEventListener('change', updateClassificationSettings);
+
 function selectProvider(p: ProviderPreset): void {
   rememberDraft();
   currentProvider = p;
   renderProviderCards(p.id);
   keyRow.classList.toggle('hidden', Boolean(p.isBuiltIn));
   baseUrlRow.classList.toggle('hidden', p.id !== 'custom');
-  $<HTMLDivElement>('jev-settings').classList.toggle('hidden', p.id !== 'jev');
+  $<HTMLSpanElement>('api-key-label').textContent = p.id === 'jev' ? 'TypeSafe API key'
+    : p.id === 'openrouter' || p.id === 'openrouter-free' ? 'OpenRouter API key' : 'API key';
   signupLink.hidden = !p.signupUrl;
   if (p.signupUrl) signupLink.href = p.signupUrl;
   const draft = profiles.get(p.id);
   inBaseUrl.value = draft?.baseUrl ?? p.baseUrl;
   inApiKey.value = draft?.apiKey ?? '';
   modelSelect.value = draft?.model ?? p.models[0] ?? '';
+  updateClassificationSettings();
   populateModels(p.models);
   testResult.textContent = 'Click Save provider to use these settings.';
 }

@@ -31,6 +31,29 @@ beforeEach(async () => {
 });
 
 describe('provider settings', () => {
+  it('shows categories for OpenRouter Jev, saves the OpenRouter key, and restores the selection on reload', async () => {
+    selectProvider('OpenRouter');
+    expect(document.querySelector('#api-key-label')?.textContent).toBe('OpenRouter API key');
+    expect(document.querySelector('#jev-settings')?.classList.contains('hidden')).toBe(true);
+    input('model-select').value = 'typesafe/jev-1.13';
+    input('model-select').dispatchEvent(new Event('input'));
+    expect(document.querySelector('#jev-settings')?.classList.contains('hidden')).toBe(false);
+    expect(document.querySelectorAll('.category-row')).toHaveLength(30);
+    input('apiKey').value = 'router-key';
+    click('test-btn');
+    expect(chrome.permissions.request).toHaveBeenCalledWith({ origins: ['https://openrouter.ai/*'] });
+    await vi.waitFor(() => expect(document.querySelector('#test-result')?.textContent).toBe('Connected!'));
+    expect(await getSettings()).toMatchObject({ provider: 'openrouter', model: 'typesafe/jev-1.13', apiKey: 'router-key', baseUrl: 'https://openrouter.ai/api/v1' });
+    await load();
+    expect(document.querySelector('#jev-settings')?.classList.contains('hidden')).toBe(false);
+    input('model-select').value = 'openai/gpt-5-mini';
+    input('model-select').dispatchEvent(new Event('input'));
+    expect(document.querySelector('#jev-settings')?.classList.contains('hidden')).toBe(true);
+    selectProvider('Jev (TypeSafe)');
+    expect(input('apiKey').value).toBe('');
+    expect(document.querySelector('#api-key-label')?.textContent).toBe('TypeSafe API key');
+  });
+
   it('saves Jev with its own host/key and persists editable categories and confidence', async () => {
     selectProvider('Jev (TypeSafe)');
     expect(input('model-select').value).toBe('jev-latest');

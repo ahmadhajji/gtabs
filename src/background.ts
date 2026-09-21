@@ -55,7 +55,7 @@ import { suggest, findDuplicates, inferTargetGroup, matchTabsToExistingGroups, t
 import type { ExtraHints } from './grouper';
 import { completeWithUsage, fetchOllamaModels, isChromeAIAvailable, testConnection } from './llm';
 
-import { requireProvider } from './provider';
+import { classificationEndpoint, requireProvider } from './provider';
 
 function protectedGroupNames(settings: Settings): Set<string> {
   return new Set(settings.pinnedGroups.map(name => name.toLowerCase()));
@@ -457,7 +457,7 @@ export async function organize(ungroupedOnly = false, targetWindowId?: number, c
     // Smart merge: pre-assign tabs matching existing group names by title
     let preMatched: GroupSuggestion[] = [];
     let tabsForLLM = tabs;
-    if (settings.provider !== 'jev' && existingGroupNames.length > 0) {
+    if (!classificationEndpoint(settings) && existingGroupNames.length > 0) {
       const { matched, remaining } = matchTabsToExistingGroups(tabs, existingGroupNames);
       const colorPrefs = await getGroupColorPrefs();
       preMatched = Array.from(matched.entries()).map(([name, matchedTabs]) => ({

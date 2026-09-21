@@ -1,4 +1,5 @@
 import type { LLMConfig } from './types';
+import { classificationEndpoint } from './provider';
 
 export interface Message {
   role: 'system' | 'user' | 'assistant';
@@ -114,12 +115,14 @@ export async function fetchOllamaModels(baseUrl: string): Promise<string[]> {
 }
 
 export async function evaluateChoices(
-  config: LLMConfig,
+  config: LLMConfig & { provider?: string },
   state: unknown,
   questions: Record<string, ChoiceQuestion>,
 ): Promise<{ answers: Map<string, ChoiceAnswer>; inputTokens: number; outputTokens: number }> {
-  const body = JSON.stringify({ model: config.model, state, questions });
-  const data = await fetchJSON(`${normalizeBaseUrl(config.baseUrl)}/systemone`, {
+  const endpoint = classificationEndpoint(config);
+  if (!endpoint) throw new Error('Choose Jev or an OpenRouter Jev model in Settings.');
+  const body = JSON.stringify({ model: config.model.trim(), state, questions });
+  const data = await fetchJSON(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey.trim()}` },
     body,
@@ -142,7 +145,7 @@ export async function evaluateChoices(
 }
 
 export async function testConnection(config: LLMConfig & { provider?: string }): Promise<string> {
-  if (config.provider === 'jev') {
+  if (classificationEndpoint(config)) {
     await evaluateChoices(config, 'A browser tab showing a programming tutorial.', {
       category: { type: 'choice', instructions: 'What is this tab about?', criteria: { development: 'Programming', other: 'Other topics' } },
     });

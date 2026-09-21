@@ -18,11 +18,12 @@ export async function classifyTabs(tabs: TabInfo[], settings: Settings): Promise
   groups.set(other.name, other);
   let inputTokens = 0;
   let outputTokens = 0;
+  const batchSize = settings.provider === 'jev' ? BATCH_SIZE : 20;
 
-  for (let offset = 0; offset < tabs.length; offset += BATCH_SIZE * CONCURRENT_BATCHES) {
+  for (let offset = 0; offset < tabs.length; offset += batchSize * CONCURRENT_BATCHES) {
     const batches: TabInfo[][] = [];
-    for (let i = offset; i < Math.min(offset + BATCH_SIZE * CONCURRENT_BATCHES, tabs.length); i += BATCH_SIZE) {
-      batches.push(tabs.slice(i, i + BATCH_SIZE));
+    for (let i = offset; i < Math.min(offset + batchSize * CONCURRENT_BATCHES, tabs.length); i += batchSize) {
+      batches.push(tabs.slice(i, i + batchSize));
     }
     // Drain all in-flight requests before releasing the organizer's shared lock.
     const results = await Promise.allSettled(batches.map(async batch => {

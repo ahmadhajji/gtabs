@@ -1,8 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { endpointPermission, normalizeBaseUrl, validateProvider } from '../src/provider';
+import { classificationEndpoint, endpointPermission, normalizeBaseUrl, validateProvider } from '../src/provider';
 import { DEFAULT_SETTINGS } from '../src/types';
 
 describe('provider configuration boundary', () => {
+  it('routes OpenRouter aliases to its Decisions endpoint without changing hosts', () => {
+    const config = { ...DEFAULT_SETTINGS, provider: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1///', model: ' ~typesafe/jev-latest ' };
+    expect(classificationEndpoint(config)).toBe('https://openrouter.ai/api/alpha/decisions');
+    expect(classificationEndpoint({ ...config, provider: 'openrouter-free' })).toBe('https://openrouter.ai/api/alpha/decisions');
+    expect(classificationEndpoint({ ...config, baseUrl: 'http://localhost:11434/api/v1' })).toBe('http://localhost:11434/api/alpha/decisions');
+    expect(classificationEndpoint({ ...config, model: 'openai/gpt-5-mini' })).toBeNull();
+    expect(classificationEndpoint({ ...config, provider: 'custom' })).toBeNull();
+  });
+
+  it('explains the required OpenRouter model ID for a bare Jev name', () => {
+    expect(() => validateProvider({ ...DEFAULT_SETTINGS, provider: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'jev-latest', apiKey: 'test-key' })).toThrow('typesafe/jev-1.13');
+  });
+
   it.each([
     ['http://localhost:1234/v1///', 'http://localhost/*'],
     ['http://127.0.0.1:8888/v1', 'http://127.0.0.1/*'],

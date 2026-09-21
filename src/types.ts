@@ -60,6 +60,8 @@ export const PROVIDERS: ProviderPreset[] = [
     'openai/gpt-5-mini-2025-08-07',
     'google/gemini-2.5-flash',
     'deepseek/deepseek-v3.2-20251201',
+    'typesafe/jev-1.13',
+    '~typesafe/jev-latest',
   ], needsKey: true },
   { id: 'custom', name: 'OpenAI-compatible proxy', baseUrl: '', models: [], needsKey: false, helpText: 'Use your own API base URL and model ID. An API key is optional.' },
   { id: 'ollama', name: 'Ollama (Local)', baseUrl: 'http://localhost:11434/v1', models: [], needsKey: false, canFetchModels: true, signupUrl: 'https://ollama.com/download', helpText: 'Run models locally. Install Ollama first.' },
@@ -257,6 +259,8 @@ export interface CostTotals {
 export const MODEL_PRICING: Record<string, [number, number]> = {
   'jev-latest': [0.042, 0],
   'jev-1.13.0': [0.042, 0],
+  'typesafe/jev-1.13': [0.042, 0],
+  '~typesafe/jev-latest': [0.042, 0],
   'claude-opus-4-6': [5, 25],
   'claude-sonnet-4-6': [3, 15],
   'claude-haiku-4-5': [1, 5],
