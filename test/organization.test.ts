@@ -19,6 +19,30 @@ beforeEach(async () => {
 });
 
 describe('background organize and apply', () => {
+  it('lets Jev override fuzzy title matching, reuses the chosen category, preserves protected tabs and supports Undo', async () => {
+    const state = browserState([tab(1, { title: 'Research: TypeScript tutorial' }), tab(2, { groupId: 8 }), tab(3, { pinned: true }), tab(4, { groupId: 9 })], [
+      { id: 8, title: 'Research', color: 'red', collapsed: true, windowId: 1 },
+      { id: 9, title: 'Development', color: 'blue', collapsed: true, windowId: 1 },
+    ]);
+    await saveSettings({ ...configured, provider: 'jev', model: 'jev-latest', apiKey: 'test' });
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ answers: { tab_1: { type: 'choice', choice: 'Development', confidence: 0.9 } } })));
+    expect((await organizeAndApply(1)).state).toBe('done');
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(state.tabs.map(t => t.groupId)).toEqual([9, 8, -1, 9]);
+    expect(chrome.tabGroups.update).not.toHaveBeenCalled();
+    await undoLastGrouping();
+    expect(state.tabs.map(t => t.groupId)).toEqual([-1, 8, -1, 9]);
+  });
+
+  it('does not apply partial groups when Jev leaves out a tab', async () => {
+    const state = browserState([tab(1), tab(2)]);
+    await saveSettings({ ...configured, provider: 'jev', model: 'jev-latest', apiKey: 'test' });
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ answers: { tab_1: { type: 'choice', choice: 'Work', confidence: 1 } } })));
+    expect((await organizeAndApply(1)).state).toBe('error');
+    expect(state.tabs.map(t => t.groupId)).toEqual([-1, -1]);
+    expect(chrome.tabs.group).not.toHaveBeenCalled();
+  });
+
   it('applies immediately, keeps manual/protected/pinned/private tabs, and reuses the group', async () => {
     const state = browserState([tab(1), tab(2, { groupId: 8 }), tab(3, { pinned: true }), tab(4, { incognito: true }), tab(5, { groupId: 9 })], [
       { id: 8, title: 'Work', color: 'red', collapsed: true, windowId: 1 },

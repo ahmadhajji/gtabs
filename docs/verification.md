@@ -4,9 +4,17 @@
 
 - `pnpm install --frozen-lockfile` completes with the imported lockfile.
 - `pnpm typecheck` checks production TypeScript with strict mode.
-- `pnpm test`: 443 tests pass across 10 files, covering organization, provider/settings persistence, permissions, alarms, popup, storage, response validation, and recovery.
+- `pnpm test`: 467 tests pass across 11 files, covering organization, provider/settings persistence, permissions, alarms, popup, storage, response validation, recovery, and Jev classification.
 - `pnpm build` creates an unpacked Manifest V3 extension in `dist/`.
 - No lint configuration is present, so no lint pass is claimed.
+
+## Jev verification (2026-09-21)
+
+The Jev integration uses the documented TypeSafe Choice request and answer format. Tests cover the 30 presets, custom category persistence, confidence fallback, explicit domain rules, response validation, bounded request concurrency, draining failed batches, token accounting, timeouts, and the classification connection test. Background tests verify that fuzzy title matching cannot bypass Jev and that incomplete answers cause no grouping.
+
+The production extension was loaded in an isolated Chromium profile through Playwright. A local synthetic server implemented `/v1/systemone`; no real TypeSafe key or remote model was used. Save and test connected, all 30 categories persisted through reload, and a real browser organization grouped two eligible tabs into Development while leaving a pinned tab and an existing collapsed Manual group alone. Undo restored both eligible tabs to their ungrouped state. The options page had no console errors. Screenshots were checked at 1280x900 and 390x844; the narrow viewport had no horizontal overflow.
+
+Localhost access was granted through Chromium's extension-management API because the headless browser cannot operate the native optional-host prompt. Unit tests cover permission requests and denial. Real TypeSafe latency, classification quality, and Helium's permission prompt remain owner checks.
 
 ## Browser smoke test
 

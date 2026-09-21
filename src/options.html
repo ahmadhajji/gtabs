@@ -208,6 +208,21 @@
   }
   .copy-btn:hover { background: rgba(66,133,244,0.15); }
   .setup-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  #jev-settings { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 20px; }
+  .category-row { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(0, 2fr) 32px; gap: 8px; margin-bottom: 10px; align-items: start; scroll-margin-top: 64px; }
+  .category-row label { min-width: 0; }
+  .category-row input, .category-row textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+  .category-row textarea { min-height: 76px; resize: vertical; font: inherit; font-weight: 400; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+  .category-remove { width: 32px; height: 32px; margin-top: 28px; }
+  #category-status { display: block; overflow-wrap: anywhere; }
+  @media (max-width: 520px) {
+    .form-row { flex-direction: column; align-items: stretch; }
+    .form-action { flex-wrap: wrap; }
+    #test-result { flex-basis: 100%; white-space: normal; overflow-wrap: anywhere; }
+    .category-row { grid-template-columns: minmax(0, 1fr) 32px; }
+    .category-row label:nth-child(2) { grid-column: 1; grid-row: 2; }
+    .category-remove { grid-column: 2; grid-row: 1; }
+  }
 
   @keyframes fadeUp {
     from { opacity: 0; transform: translateY(8px); }
@@ -234,7 +249,7 @@
   <!-- ═══ TAB: Provider ═══ -->
   <div class="tab-panel active" data-tab="provider">
     <div class="section">
-      <div class="section-header"><div class="section-icon">🤖</div><h2>LLM Provider</h2></div>
+      <div class="section-header"><div class="section-icon">🤖</div><h2>AI Provider</h2></div>
       <div class="provider-grid" id="provider-grid"></div>
 
       <!-- Chrome AI setup guide — shown when chrome-ai selected but unavailable -->
@@ -273,7 +288,7 @@
       </div>
 
       <div class="form-group hidden" id="key-row">
-        <label for="apiKey">API key <a id="signup-link" href="#" target="_blank" hidden>Get free key →</a></label>
+        <label for="apiKey">API key <a id="signup-link" href="#" target="_blank" hidden>Get API key →</a></label>
         <input type="password" id="apiKey" placeholder="sk-..." />
         <div class="slider-desc" style="margin-top:6px">The configured provider receives eligible tab titles and URLs. A proxy may forward them to a cloud model. Keys stay in this browser profile. Leave the key blank only if your endpoint allows it.</div>
       </div>
@@ -290,6 +305,20 @@
           <span class="test-result" id="test-result" role="status"></span>
         </div>
       </div>
+      <div id="jev-settings" class="hidden">
+        <h2>Categories</h2>
+        <div id="classification-categories"></div>
+        <div class="setup-actions">
+          <button class="btn-ghost btn-sm" id="add-category">Add category</button>
+          <button class="btn-ghost btn-sm" id="reset-categories">Reset defaults</button>
+        </div>
+        <div class="form-group" style="margin-top:16px">
+          <label for="classification-confidence">Minimum confidence <output id="classification-confidence-value">60%</output></label>
+          <input type="range" id="classification-confidence" min="0" max="100" step="5" value="60" />
+        </div>
+        <button class="btn btn-sm" id="save-categories">Save categories</button>
+        <span id="category-status" class="test-result" role="status"></span>
+      </div>
     </div>
   </div>
 
@@ -299,7 +328,7 @@
       <div class="section-header"><div class="section-icon">⚡️</div><h2>Organization</h2></div>
 
       <div class="slider-group">
-        <div class="slider-header"><div><div class="slider-label">Max Groups</div><div class="slider-desc">Limit the number of tab groups AI creates</div></div><span class="slider-val" id="maxGroupsVal">6</span></div>
+        <div class="slider-header"><div><div class="slider-label">Max Groups (chat providers)</div><div class="slider-desc">Limit the number of tab groups AI creates</div></div><span class="slider-val" id="maxGroupsVal">6</span></div>
         <input type="range" id="maxGroups" min="2" max="15" value="6" />
       </div>
       <div class="slider-group">

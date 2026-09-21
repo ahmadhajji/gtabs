@@ -457,7 +457,7 @@ export async function organize(ungroupedOnly = false, targetWindowId?: number, c
     // Smart merge: pre-assign tabs matching existing group names by title
     let preMatched: GroupSuggestion[] = [];
     let tabsForLLM = tabs;
-    if (existingGroupNames.length > 0) {
+    if (settings.provider !== 'jev' && existingGroupNames.length > 0) {
       const { matched, remaining } = matchTabsToExistingGroups(tabs, existingGroupNames);
       const colorPrefs = await getGroupColorPrefs();
       preMatched = Array.from(matched.entries()).map(([name, matchedTabs]) => ({

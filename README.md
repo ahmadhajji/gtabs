@@ -7,13 +7,25 @@ A personal fork of [gTabs](https://github.com/vaddisrinivas/gtabs) for Helium on
 1. Build this fork or obtain its `gtabs-extension.zip`. Extract the ZIP into a permanent folder.
 2. Open `chrome://extensions` in Helium, enable **Developer mode**, then select **Load unpacked** and choose the extracted folder. For a local build, choose `dist/`.
 3. Pin gTabs from Helium's extensions menu if you want its toolbar button visible.
-4. Open gTabs → **Settings**. Choose **OpenRouter** or **OpenAI-compatible proxy**. Enter the model ID, API key, and, for a proxy, API base URL. No provider is configured by default.
+4. Open gTabs → **Settings**. Choose **Jev (TypeSafe)** for preset classification, or a chat provider such as **OpenRouter** or **OpenAI-compatible proxy**. Enter your API key; Jev preselects `jev-latest`. For a proxy, also enter its API base URL and model ID. No provider is configured by default.
 5. Click **Save provider** and allow access to the selected API host. **Save and test** also sends a small connection-test request. A saved configuration does not prove the endpoint or credentials work.
 6. Click **Organize** in the popup. Grouping starts immediately and continues in the background if the popup closes. **Undo last grouping** restores the last operation in its original window.
 
 The custom base URL includes any API prefix, such as `/v1`. gTabs appends `/chat/completions` and removes trailing slashes. HTTP localhost, `127.0.0.1`, LAN hosts, and HTTPS endpoints are supported. Leave the key blank only if the endpoint accepts unauthenticated requests. A local proxy may forward requests to a remote model.
 
 Provider profiles retain their own URL, key, and free-form model ID when switching providers. Keys are stored in local extension storage, excluded from settings sync and exports, and never included in error bodies. Profiles are not encrypted. Host access is requested from the Save button for the chosen host; Chrome host permissions cover all ports on that host. Redirects are rejected so requests cannot silently move to another endpoint.
+
+## Jev classification
+
+Jev uses TypeSafe's [classification API](https://docs.typesafe.ai/primitives/choice) at `https://api.typesafe.ai/v1/systemone`. Get a key from the [TypeSafe console](https://console.typesafe.ai), select **Jev (TypeSafe)** in Settings, then **Save and test**. Existing provider settings stay selected until you explicitly save Jev.
+
+The 30 editable preset categories cover development, AI, research, work, reading, shopping, entertainment, social, education, medicine, email, documents, project management, design, hosting, finance, investing, travel, food, sports, home, careers, government, security, music, gaming, news, utilities, arts, and local services. Each has a description to distinguish its scope. Edit names and descriptions under **Categories**, then **Save categories**. Up to 40 categories are supported. Only categories with matching tabs become browser groups; the chat-provider Max Groups setting does not limit Jev.
+
+Each eligible tab gets one Choice question using its title and URL. Up to 40 tabs share a request, with at most three requests in flight. Tab IDs appear explicitly in each question because Jev does not see question-map keys. Explicit domain rules take priority; fuzzy title matching and old domain-affinity hints do not override Jev's classifications. Existing groups with the chosen name are reused.
+
+**Other** handles unmatched or low-confidence tabs. The default minimum confidence is 60%, adjustable in Settings. Confidence is a model score, not a measured tab-classification accuracy. All batch responses must validate before groups are applied. No chat-model fallback runs on API failure. Pinned/manual/protected tabs, window boundaries and Undo retain their existing behavior.
+
+This integration is tested with synthetic API responses. Real latency and classification quality require a TypeSafe key and a representative set of tabs. Jev's documented price is $0.042 per million input tokens with free output tokens as of September 21, 2026; estimates are recorded for `jev-latest` and `jev-1.13.0`. See [TypeSafe models](https://docs.typesafe.ai/models) for current pricing and limits.
 
 ## Automatic organization
 

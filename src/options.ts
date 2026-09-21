@@ -1,9 +1,10 @@
-import type { Settings, DomainRule, Color, ProviderPreset, LLMConfig } from './types';
+import type { Settings, DomainRule, Color, ProviderPreset, LLMConfig, ClassificationCategory } from './types';
 import { DEFAULT_SETTINGS, PROVIDERS, COLORS } from './types';
 import { getSettings, saveSettings, getDomainRules, saveDomainRules } from './storage';
 
 import { sendMessage as sendMsg } from './messages';
 import { endpointPermission, validateProvider } from './provider';
+import { parseCategories } from './categories';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -33,6 +34,10 @@ const profiles = new Map<string, LLMConfig>();
 const testBtn = $<HTMLButtonElement>('test-btn');
 const signupLink = $<HTMLAnchorElement>('signup-link');
 const testResult = $<HTMLSpanElement>('test-result');
+const categoryContainer = $<HTMLDivElement>('classification-categories');
+const categoryStatus = $<HTMLSpanElement>('category-status');
+const confidenceInput = $<HTMLInputElement>('classification-confidence');
+const confidenceValue = $<HTMLOutputElement>('classification-confidence-value');
 const inMaxGroups = $<HTMLInputElement>('maxGroups');
 const outMaxGroups = $<HTMLSpanElement>('maxGroupsVal');
 const inMaxTitleLength = $<HTMLInputElement>('maxTitleLength');
@@ -134,6 +139,7 @@ function selectProvider(p: ProviderPreset): void {
   renderProviderCards(p.id);
   keyRow.classList.toggle('hidden', Boolean(p.isBuiltIn));
   baseUrlRow.classList.toggle('hidden', p.id !== 'custom');
+  $<HTMLDivElement>('jev-settings').classList.toggle('hidden', p.id !== 'jev');
   signupLink.hidden = !p.signupUrl;
   if (p.signupUrl) signupLink.href = p.signupUrl;
   const draft = profiles.get(p.id);
@@ -188,6 +194,72 @@ async function saveProvider(test: boolean): Promise<void> {
 }
 
 // --- Save ---
+
+function addCategoryRow(category: ClassificationCategory): void {
+  const row = document.createElement('div');
+  row.className = 'category-row';
+  const nameLabel = document.createElement('label');
+  nameLabel.textContent = 'Category';
+  const name = document.createElement('input');
+  name.className = 'category-name';
+  name.type = 'text';
+  name.maxLength = 40;
+  name.value = category.name;
+  nameLabel.appendChild(name);
+  const descriptionLabel = document.createElement('label');
+  descriptionLabel.textContent = 'Description';
+  const description = document.createElement('textarea');
+  description.className = 'category-description';
+  description.maxLength = 200;
+  description.value = category.description;
+  descriptionLabel.appendChild(description);
+  const remove = document.createElement('button');
+  remove.className = 'btn-ghost category-remove';
+  remove.textContent = '\u00d7';
+  remove.title = 'Remove category';
+  remove.setAttribute('aria-label', 'Remove category');
+  remove.addEventListener('click', () => { row.remove(); categoryStatus.textContent = 'Unsaved changes'; });
+  row.append(nameLabel, descriptionLabel, remove);
+  categoryContainer.appendChild(row);
+}
+
+function renderCategories(categories: ClassificationCategory[]): void {
+  categoryContainer.replaceChildren();
+  categories.forEach(addCategoryRow);
+}
+
+categoryContainer.addEventListener('input', () => { categoryStatus.textContent = 'Unsaved changes'; });
+confidenceInput.addEventListener('input', () => {
+  confidenceValue.value = `${confidenceInput.value}%`;
+  categoryStatus.textContent = 'Unsaved changes';
+});
+$<HTMLButtonElement>('add-category').addEventListener('click', () => {
+  if (categoryContainer.children.length >= 40) { categoryStatus.textContent = 'Use up to 40 categories.'; return; }
+  addCategoryRow({ name: '', description: '' });
+  categoryContainer.lastElementChild?.querySelector('input')?.focus();
+  categoryStatus.textContent = 'Unsaved changes';
+});
+$<HTMLButtonElement>('reset-categories').addEventListener('click', () => {
+  renderCategories(DEFAULT_SETTINGS.classificationCategories);
+  confidenceInput.value = String(DEFAULT_SETTINGS.classificationConfidence * 100);
+  confidenceValue.value = `${confidenceInput.value}%`;
+  categoryStatus.textContent = 'Unsaved changes';
+});
+$<HTMLButtonElement>('save-categories').addEventListener('click', async () => {
+  try {
+    const categories = parseCategories([...categoryContainer.querySelectorAll('.category-row')].map(row => ({
+      name: row.querySelector<HTMLInputElement>('.category-name')?.value,
+      description: row.querySelector<HTMLTextAreaElement>('.category-description')?.value,
+    })));
+    await saveSettings({ ...await getSettings(), classificationCategories: categories, classificationConfidence: Number(confidenceInput.value) / 100 });
+    renderCategories(categories);
+    categoryStatus.className = 'test-result ok';
+    categoryStatus.textContent = 'Categories saved.';
+  } catch (error) {
+    categoryStatus.className = 'test-result fail';
+    categoryStatus.textContent = error instanceof Error ? error.message : 'Could not save categories.';
+  }
+});
 
 async function save() {
   // Preserve pinnedGroups from current settings (managed separately)
@@ -248,6 +320,9 @@ async function load() {
   currentProvider = null;
   selectProvider(p);
   testResult.textContent = '';
+  renderCategories(s.classificationCategories);
+  confidenceInput.value = String(s.classificationConfidence * 100);
+  confidenceValue.value = `${confidenceInput.value}%`;
   if (p.isBuiltIn && !chromeAIAvailable) showChromeAISetup();
 
   // Behavior

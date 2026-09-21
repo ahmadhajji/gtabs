@@ -21,4 +21,10 @@ describe('provider configuration boundary', () => {
     expect(validateProvider({ ...DEFAULT_SETTINGS, baseUrl: 'https://proxy.example/v1', model: 'owner/model' }).apiKey).toBe('');
     expect(() => validateProvider({ ...DEFAULT_SETTINGS, provider: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'owner/model' })).toThrow('API key');
   });
+
+  it('requires a key for Jev and retains its classification endpoint and model', () => {
+    const config = { ...DEFAULT_SETTINGS, provider: 'jev', baseUrl: 'https://api.typesafe.ai/v1', model: 'jev-latest' };
+    expect(() => validateProvider(config)).toThrow('API key');
+    expect(validateProvider({ ...config, apiKey: ' test-key ' })).toEqual({ baseUrl: config.baseUrl, model: config.model, apiKey: 'test-key' });
+  });
 });

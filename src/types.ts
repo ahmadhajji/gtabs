@@ -20,6 +20,7 @@ export interface ProviderPreset {
 }
 
 export const PROVIDERS: ProviderPreset[] = [
+  { id: 'jev', name: 'Jev (TypeSafe)', baseUrl: 'https://api.typesafe.ai/v1', models: ['jev-latest'], needsKey: true, signupUrl: 'https://console.typesafe.ai' },
   { id: 'chrome-ai', name: 'Chrome Built-in AI', baseUrl: '', models: ['gemini-nano'], needsKey: false, isBuiltIn: true, helpText: 'Free. Runs on-device in Chrome. Two flags to enable — click for setup guide.' },
   { id: 'openrouter-free', name: 'OpenRouter (Free)', baseUrl: 'https://openrouter.ai/api/v1', signupUrl: 'https://openrouter.ai/keys', helpText: 'Free, no credit card. Sign up \u2192 copy key.', models: [
     'openrouter/free',
@@ -92,8 +93,48 @@ export interface LLMConfig {
   model: string;
 }
 
+export interface ClassificationCategory {
+  name: string;
+  description: string;
+}
+
+export const DEFAULT_CATEGORIES: ClassificationCategory[] = [
+  { name: 'Development', description: 'Software projects, programming, developer documentation, infrastructure and debugging. Excludes AI-specific work.' },
+  { name: 'AI', description: 'AI models, assistants, agents, machine learning tools, research and development.' },
+  { name: 'Research', description: 'Scientific papers, academic journals, experiments and research references outside AI.' },
+  { name: 'Work', description: 'Business operations, sales, customer support and professional administration outside more specific categories.' },
+  { name: 'Reading', description: 'Blogs, essays and general articles outside the more specific subject categories.' },
+  { name: 'Shopping', description: 'Products, stores, price comparisons, orders and purchases.' },
+  { name: 'Entertainment', description: 'Movies, television, streaming and leisure videos. Educational videos belong to their subject category.' },
+  { name: 'Social', description: 'Social feeds, messaging, community discussions and personal profiles.' },
+  { name: 'Education', description: 'Courses, lectures, tutorials, language learning and school portals outside programming, AI and medicine.' },
+  { name: 'Health & Medicine', description: 'Clinical references, medical study, patient care, health information and healthcare services.' },
+  { name: 'Email & Calendar', description: 'Email inboxes, calendars, meeting invitations and scheduling.' },
+  { name: 'Documents & Notes', description: 'Document editors, spreadsheets, slide decks, note-taking and file storage.' },
+  { name: 'Project Management', description: 'Task boards, issue trackers, project planning and team work tracking.' },
+  { name: 'Design', description: 'UI design, graphics, prototyping, typography, design assets and creative editing tools.' },
+  { name: 'Cloud & Hosting', description: 'Deployment dashboards, hosting providers, DNS, server management and cloud infrastructure.' },
+  { name: 'Finance & Banking', description: 'Bank accounts, payments, budgets, accounting, taxes and insurance.' },
+  { name: 'Investing', description: 'Stocks, funds, cryptocurrency, trading platforms, market analysis and investment portfolios.' },
+  { name: 'Travel & Maps', description: 'Flights, hotels, itineraries, destinations, maps, navigation and public transport.' },
+  { name: 'Food & Cooking', description: 'Recipes, cooking techniques, restaurants, menus and food delivery.' },
+  { name: 'Sports & Fitness', description: 'Sports news and scores, exercise, training plans, fitness tracking and outdoor activities.' },
+  { name: 'Home & DIY', description: 'Housing, real estate, furniture, gardening, home improvement and do-it-yourself projects.' },
+  { name: 'Jobs & Careers', description: 'Job listings, applications, resumes, interviews, recruitment and career development.' },
+  { name: 'Government & Legal', description: 'Government services, legislation, legal references, immigration and official applications.' },
+  { name: 'Security & Privacy', description: 'Cybersecurity, vulnerabilities, privacy tools, identity protection and security administration.' },
+  { name: 'Music & Audio', description: 'Music streaming, albums, artists, podcasts, audio production and listening.' },
+  { name: 'Gaming', description: 'Video games, game stores, walkthroughs, gaming communities and esports.' },
+  { name: 'News & Politics', description: 'Current events, journalism and political coverage outside more specific subject categories.' },
+  { name: 'Utilities', description: 'Calculators, converters, translation tools, speed tests and other small online utilities.' },
+  { name: 'Arts & Culture', description: 'Art, photography, literature, history, museums, cultural events and creative inspiration.' },
+  { name: 'Local Services', description: 'Local businesses, appointments, repairs, deliveries and everyday service providers.' },
+];
+
 export interface Settings extends LLMConfig {
   provider: string;
+  classificationCategories: ClassificationCategory[];
+  classificationConfidence: number;
   autoTrigger: boolean;
   threshold: number;
   maxGroups: number;
@@ -214,6 +255,8 @@ export interface CostTotals {
 }
 
 export const MODEL_PRICING: Record<string, [number, number]> = {
+  'jev-latest': [0.042, 0],
+  'jev-1.13.0': [0.042, 0],
   'claude-opus-4-6': [5, 25],
   'claude-sonnet-4-6': [3, 15],
   'claude-haiku-4-5': [1, 5],
@@ -266,6 +309,8 @@ export interface ExportData {
 
 export const DEFAULT_SETTINGS: Settings = {
   provider: 'custom',
+  classificationCategories: DEFAULT_CATEGORIES,
+  classificationConfidence: 0.6,
   baseUrl: '',
   apiKey: '',
   model: '',
