@@ -18,6 +18,7 @@ import type {
   SnoozedTab,
 } from './types';
 import { DEFAULT_SETTINGS, DEFAULT_STATS, DEFAULT_COSTS } from './types';
+import { parseCategories } from './categories';
 
 const K = {
   settings: 'settings',
@@ -62,12 +63,16 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
 
 function sanitizeSettings(input: Partial<Settings>): Settings {
   const s = { ...DEFAULT_SETTINGS, ...input };
+  let classificationCategories = DEFAULT_SETTINGS.classificationCategories;
+  try { classificationCategories = parseCategories(s.classificationCategories); } catch { /* Recover invalid or older saved settings. */ }
   const reorgSchedule = s.reorgSchedule === 'five-minutes' || s.reorgSchedule === 'daily' || s.reorgSchedule === 'weekly' || s.reorgSchedule === 'off'
     ? s.reorgSchedule
     : DEFAULT_SETTINGS.reorgSchedule;
   return {
     ...s,
     provider: typeof s.provider === 'string' ? s.provider : DEFAULT_SETTINGS.provider,
+    classificationCategories,
+    classificationConfidence: clampNumber(s.classificationConfidence, DEFAULT_SETTINGS.classificationConfidence, 0, 1),
     baseUrl: typeof s.baseUrl === 'string' ? s.baseUrl : DEFAULT_SETTINGS.baseUrl,
     apiKey: typeof s.apiKey === 'string' ? s.apiKey.trim() : DEFAULT_SETTINGS.apiKey,
     model: typeof s.model === 'string' ? s.model : DEFAULT_SETTINGS.model,

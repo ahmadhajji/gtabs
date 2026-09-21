@@ -1,4 +1,5 @@
 import { completeWithUsage } from './llm';
+import { classifyTabs } from './jev';
 import type {
   TabInfo, GroupSuggestion, Settings, AffinityMap, DomainRule, Color,
   WeightedAffinityMap, RejectionEntry,
@@ -344,6 +345,11 @@ export async function suggest(
   const { matched, remaining } = applyDomainRules(tabs, domainRules);
 
   if (remaining.length === 0) return { suggestions: matched, inputTokens: 0, outputTokens: 0 };
+
+  if (settings.provider === 'jev') {
+    const result = await classifyTabs(remaining, settings);
+    return { ...result, suggestions: mergeSuggestions([matched, result.suggestions]) };
+  }
 
   const remainingGroups = Math.max(1, settings.maxGroups - matched.length);
   const chunks = chunkArray(remaining, CHUNK_SIZE);

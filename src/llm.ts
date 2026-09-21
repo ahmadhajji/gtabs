@@ -11,6 +11,17 @@ export interface CompletionResult {
   outputTokens: number;
 }
 
+export interface ChoiceQuestion {
+  type: 'choice';
+  instructions: string;
+  criteria: Record<string, string>;
+}
+
+export interface ChoiceAnswer {
+  choice: string;
+  confidence: number;
+}
+
 const LLM_TIMEOUT_MS = 25_000;
 const MAX_TOKENS = 4096;
 
@@ -102,6 +113,40 @@ export async function fetchOllamaModels(baseUrl: string): Promise<string[]> {
   return data.models.flatMap((m: unknown) => isRecord(m) && typeof m.name === 'string' ? [m.name] : isRecord(m) && typeof m.model === 'string' ? [m.model] : []);
 }
 
-export async function testConnection(config: LLMConfig): Promise<string> {
+export async function evaluateChoices(
+  config: LLMConfig,
+  state: unknown,
+  questions: Record<string, ChoiceQuestion>,
+): Promise<{ answers: Map<string, ChoiceAnswer>; inputTokens: number; outputTokens: number }> {
+  const body = JSON.stringify({ model: config.model, state, questions });
+  const data = await fetchJSON(`${normalizeBaseUrl(config.baseUrl)}/systemone`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey.trim()}` },
+    body,
+  });
+  if (!isRecord(data) || !isRecord(data.answers) || Object.keys(data.answers).length !== Object.keys(questions).length) {
+    throw new Error('Incomplete or malformed response from Jev.');
+  }
+  const answers = new Map<string, ChoiceAnswer>();
+  for (const [id, question] of Object.entries(questions)) {
+    const answer = data.answers[id];
+    if (!isRecord(answer) || answer.type !== 'choice' || typeof answer.choice !== 'string' ||
+      !Object.hasOwn(question.criteria, answer.choice) || typeof answer.confidence !== 'number' ||
+      !Number.isFinite(answer.confidence) || answer.confidence < 0 || answer.confidence > 1) {
+      throw new Error('Invalid category or confidence in Jev response.');
+    }
+    answers.set(id, { choice: answer.choice, confidence: answer.confidence });
+  }
+  const usage = isRecord(data.usage) ? data.usage : {};
+  return { answers, inputTokens: tokenCount(usage.input_tokens, body), outputTokens: tokenCount(usage.output_tokens, '') };
+}
+
+export async function testConnection(config: LLMConfig & { provider?: string }): Promise<string> {
+  if (config.provider === 'jev') {
+    await evaluateChoices(config, 'A browser tab showing a programming tutorial.', {
+      category: { type: 'choice', instructions: 'What is this tab about?', criteria: { development: 'Programming', other: 'Other topics' } },
+    });
+    return 'OK';
+  }
   return (await completeWithUsage(config, [{ role: 'user', content: 'Reply with exactly: OK' }])).content;
 }

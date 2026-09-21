@@ -31,6 +31,45 @@ beforeEach(async () => {
 });
 
 describe('provider settings', () => {
+  it('saves Jev with its own host/key and persists editable categories and confidence', async () => {
+    selectProvider('Jev (TypeSafe)');
+    expect(input('model-select').value).toBe('jev-latest');
+    expect(document.querySelector('#jev-settings')?.classList.contains('hidden')).toBe(false);
+    input('apiKey').value = 'jev-test-key';
+    click('test-btn');
+    expect(chrome.permissions.request).toHaveBeenCalledWith({ origins: ['https://api.typesafe.ai/*'] });
+    await vi.waitFor(() => expect(document.querySelector('#test-result')?.textContent).toBe('Connected!'));
+    expect((await getSettings()).provider).toBe('jev');
+    click('add-category');
+    const row = document.querySelector('.category-row:last-child');
+    row!.querySelector<HTMLInputElement>('.category-name')!.value = 'Medicine';
+    row!.querySelector<HTMLTextAreaElement>('.category-description')!.value = 'Clinical references and studying';
+    input('classification-confidence').value = '75';
+    click('save-categories');
+    await vi.waitFor(() => expect(document.querySelector('#category-status')?.textContent).toBe('Categories saved.'));
+    await load();
+    expect(input('classification-confidence').value).toBe('75');
+    expect(document.querySelector<HTMLInputElement>('.category-row:last-child .category-name')?.value).toBe('Medicine');
+    selectProvider('OpenRouter');
+    expect(input('apiKey').value).toBe('');
+    expect(document.querySelector('#jev-settings')?.classList.contains('hidden')).toBe(true);
+  });
+
+  it('retains incomplete category drafts and rejects duplicates without replacing saved categories', async () => {
+    selectProvider('Jev (TypeSafe)');
+    click('add-category');
+    click('save-categories');
+    await vi.waitFor(() => expect(document.querySelector('#category-status')?.textContent).toContain('1-40'));
+    expect(document.querySelectorAll('.category-row').length).toBe(DEFAULT_SETTINGS.classificationCategories.length + 1);
+    expect((await getSettings()).classificationCategories).toHaveLength(DEFAULT_SETTINGS.classificationCategories.length);
+    const row = document.querySelector('.category-row:last-child');
+    row!.querySelector<HTMLInputElement>('.category-name')!.value = 'development';
+    row!.querySelector<HTMLTextAreaElement>('.category-description')!.value = 'Duplicate';
+    click('save-categories');
+    await vi.waitFor(() => expect(document.querySelector('#category-status')?.textContent).toContain('unique'));
+    expect((await getSettings()).classificationCategories).toHaveLength(DEFAULT_SETTINGS.classificationCategories.length);
+  });
+
   it('saves a custom URL, optional key and free-form model and keeps profiles across switches and reload', async () => {
     input('baseUrl').value = 'http://127.0.0.1:9988/api/v1///';
     input('apiKey').value = ' test-secret ';
