@@ -19,12 +19,15 @@ beforeEach(async () => {
 });
 
 describe('background organize and apply', () => {
-  it('lets Jev override fuzzy title matching, reuses the chosen category, preserves protected tabs and supports Undo', async () => {
+  it.each([
+    { provider: 'jev', model: 'jev-latest' },
+    { provider: 'openrouter', model: 'typesafe/jev-1.13' },
+  ])('lets Jev on $provider override fuzzy title matching, preserve protected tabs and support Undo', async providerConfig => {
     const state = browserState([tab(1, { title: 'Research: TypeScript tutorial' }), tab(2, { groupId: 8 }), tab(3, { pinned: true }), tab(4, { groupId: 9 })], [
       { id: 8, title: 'Research', color: 'red', collapsed: true, windowId: 1 },
       { id: 9, title: 'Development', color: 'blue', collapsed: true, windowId: 1 },
     ]);
-    await saveSettings({ ...configured, provider: 'jev', model: 'jev-latest', apiKey: 'test' });
+    await saveSettings({ ...configured, ...providerConfig, apiKey: 'test' });
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ answers: { tab_1: { type: 'choice', choice: 'Development', confidence: 0.9 } } })));
     expect((await organizeAndApply(1)).state).toBe('done');
     expect(fetch).toHaveBeenCalledOnce();
@@ -34,9 +37,12 @@ describe('background organize and apply', () => {
     expect(state.tabs.map(t => t.groupId)).toEqual([-1, 8, -1, 9]);
   });
 
-  it('does not apply partial groups when Jev leaves out a tab', async () => {
+  it.each([
+    { provider: 'jev', model: 'jev-latest' },
+    { provider: 'openrouter', model: 'typesafe/jev-1.13' },
+  ])('does not apply partial groups when Jev on $provider leaves out a tab', async providerConfig => {
     const state = browserState([tab(1), tab(2)]);
-    await saveSettings({ ...configured, provider: 'jev', model: 'jev-latest', apiKey: 'test' });
+    await saveSettings({ ...configured, ...providerConfig, apiKey: 'test' });
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ answers: { tab_1: { type: 'choice', choice: 'Work', confidence: 1 } } })));
     expect((await organizeAndApply(1)).state).toBe('error');
     expect(state.tabs.map(t => t.groupId)).toEqual([-1, -1]);

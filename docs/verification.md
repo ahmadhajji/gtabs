@@ -4,11 +4,15 @@
 
 - `pnpm install --frozen-lockfile` completes with the imported lockfile.
 - `pnpm typecheck` checks production TypeScript with strict mode.
-- `pnpm test`: 467 tests pass across 11 files, covering organization, provider/settings persistence, permissions, alarms, popup, storage, response validation, recovery, and Jev classification.
+- `pnpm test`: 476 tests pass across 11 files, covering organization, provider/settings persistence, permissions, alarms, popup, storage, response validation, recovery, and Jev classification.
 - `pnpm build` creates an unpacked Manifest V3 extension in `dist/`.
 - No lint configuration is present, so no lint pass is claimed.
 
 ## Jev verification (2026-09-21)
+
+OpenRouter Jev support was checked against OpenRouter's published OpenAPI specification: `POST /api/alpha/decisions` uses the same Choice questions and answers as direct TypeSafe. Tests verify the exact endpoint, OpenRouter authentication, the pinned model and latest alias, smaller 20-tab batches, ordinary chat-model routing, category visibility and persistence, and protection/Undo behavior through both providers.
+
+In a fresh Chromium profile, the built extension's OpenRouter configuration connected to a local synthetic Decisions endpoint. The server received `/api/alpha/decisions` for both Save and test and organization. Two ordinary tabs were grouped; a pinned tab and a collapsed manual group were preserved; Undo restored the original arrangement. All 30 categories were available, the key label read OpenRouter API key, screenshots at 1280x900 and 390x844 were inspected, and no horizontal overflow or console errors were found. No live OpenRouter key was used. Reload the unpacked extension after replacing its files so the service worker uses the new build.
 
 The Jev integration uses the documented TypeSafe Choice request and answer format. Tests cover the 30 presets, custom category persistence, confidence fallback, explicit domain rules, response validation, bounded request concurrency, draining failed batches, token accounting, timeouts, and the classification connection test. Background tests verify that fuzzy title matching cannot bypass Jev and that incomplete answers cause no grouping.
 

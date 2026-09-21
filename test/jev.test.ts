@@ -8,6 +8,7 @@ import { getSettings, saveSettings } from '../src/storage';
 import { resetAllMocks } from './setup';
 
 const settings: Settings = { ...DEFAULT_SETTINGS, provider: 'jev', baseUrl: 'https://api.typesafe.ai/v1', model: 'jev-latest', apiKey: 'test-key' };
+const routerSettings: Settings = { ...settings, provider: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'typesafe/jev-1.13', apiKey: 'openrouter-test-key' };
 const tabs: TabInfo[] = [
   { id: 1, title: 'TypeScript tutorial on YouTube', url: 'https://youtube.com/watch?v=code' },
   { id: 2, title: 'Research paper', url: 'https://example.com/paper' },
@@ -22,6 +23,36 @@ function response(items: TabInfo[], choice = 'Development', confidence = 0.9): R
 beforeEach(resetAllMocks);
 
 describe('Jev classification', () => {
+  it.each(['typesafe/jev-1.13', '~typesafe/jev-latest'])('routes OpenRouter model %s through its Decisions API with the same categories', async model => {
+    vi.mocked(fetch).mockResolvedValueOnce(response(tabs));
+    const result = await suggest(tabs, { ...routerSettings, model }, {});
+    expect(result.suggestions).toEqual([{ name: 'Development', color: 'blue', tabs }]);
+    expect(fetch).toHaveBeenCalledOnce();
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toBe('https://openrouter.ai/api/alpha/decisions');
+    expect(init).toMatchObject({ redirect: 'error', headers: { Authorization: 'Bearer openrouter-test-key' } });
+    expect(JSON.parse(String(init?.body))).toMatchObject({ model, state: { tabs }, questions: { tab_1: { type: 'choice', criteria: { Development: expect.any(String), Other: expect.any(String) } } } });
+    expect(result.inputTokens).toBe(100);
+  });
+
+  it('uses smaller OpenRouter batches and merges all classified tabs', async () => {
+    const manyTabs = Array.from({ length: 41 }, (_, i) => ({ ...tabs[0], id: i + 1 }));
+    for (let i = 0; i < manyTabs.length; i += 20) vi.mocked(fetch).mockResolvedValueOnce(response(manyTabs.slice(i, i + 20)));
+    const result = await classifyTabs(manyTabs, routerSettings);
+    expect(result.suggestions).toEqual([{ name: 'Development', color: 'blue', tabs: manyTabs }]);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(result.inputTokens).toBe(300);
+  });
+
+  it('tests OpenRouter Jev with a Choice request and keeps ordinary OpenRouter models on chat', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ answers: { category: { type: 'choice', choice: 'development', confidence: 1 } } })));
+    await expect(testConnection(routerSettings)).resolves.toBe('OK');
+    expect(fetch).toHaveBeenLastCalledWith('https://openrouter.ai/api/alpha/decisions', expect.any(Object));
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: 'OK' } }] })));
+    await expect(testConnection({ ...routerSettings, model: 'openai/gpt-5-mini' })).resolves.toBe('OK');
+    expect(fetch).toHaveBeenLastCalledWith('https://openrouter.ai/api/v1/chat/completions', expect.any(Object));
+  });
+
   it('classifies all tabs together using explicit tab references, fixed criteria and stable category colors', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({
       answers: {
